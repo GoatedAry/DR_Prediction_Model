@@ -1,14 +1,20 @@
-# DR Stage-Aware Diagnosis — Local Files (matches Kaggle-trained checkpoint)
+# DR Stage-Aware Diagnosis — Ordinal Regression (ResNet50)
+
+Repo: https://github.com/GoatedAry/DR_Prediction_Model
 
 These files match the exact architecture and config used to train
 `best_model.pt` on Kaggle. **Best validation QWK achieved: 0.8613 (86.13%)**
 — close to the source paper's reported 0.8992, and well past their stated
-clinical threshold of 0.8. Use these files for **local inference** without
-needing the dataset or a GPU.
+clinical threshold of 0.8. Clone this repo and run inference locally —
+no dataset download or GPU required.
 
 ## Setup (Windows / PowerShell)
 
 ```powershell
+git clone https://github.com/GoatedAry/DR_Prediction_Model.git
+cd DR_Prediction_Model
+
+python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
@@ -18,8 +24,8 @@ regardless of hardware. Only training needs a GPU.
 
 ## Run inference on a single image
 
-Place `best_model.pt` (downloaded from Kaggle's Output tab, extracted from
-the training run's `results.zip`) in this folder, then:
+`best_model.pt` is already included in the repo — no separate download
+needed. Just point `predict.py` at any fundus image:
 
 ```powershell
 python predict.py --image path\to\some_fundus_image.png --checkpoint best_model.pt
@@ -33,11 +39,18 @@ Predicted stage: 3 (Severe NPDR)
 
 ## Getting sample fundus images to test with
 
-You don't need to download the full 9GB APTOS dataset to get test images —
-pull individual files via the Kaggle API.
+`train.csv` is already included in the repo, so you can skip straight to
+sampling — no need to download it via the Kaggle API first.
 
-**1. Authenticate the Kaggle CLI** (newer CLI versions use a token file,
-not the old `kaggle.json`):
+**1. Sample a balanced set of test images** — `sample_test_images.py`
+picks 2-3 `id_code`s per class (0-4) and prints ready-to-run download
+commands plus a true-label reference sheet:
+```powershell
+python sample_test_images.py --csv train.csv --per_class 3
+```
+
+**2. Authenticate the Kaggle CLI**, if you haven't already (newer CLI
+versions use a token file, not the old `kaggle.json`):
 ```powershell
 kaggle auth login
 ```
@@ -47,20 +60,8 @@ mkdir $env:USERPROFILE\.kaggle -Force
 "<your-token>" | Out-File -FilePath $env:USERPROFILE\.kaggle\access_token -NoNewline -Encoding ascii
 ```
 
-**2. Download just `train.csv`** (a few hundred KB, tells you which
-`id_code` belongs to which class):
-```powershell
-kaggle competitions download -c aptos2019-blindness-detection -f train.csv
-```
-
-**3. Sample a balanced set of test images** — `sample_test_images.py`
-picks 2-3 `id_code`s per class (0-4) and prints ready-to-run download
-commands plus a true-label reference sheet:
-```powershell
-python sample_test_images.py --csv train.csv --per_class 3
-```
-Copy-paste the printed `kaggle competitions download -f train_images/...`
-commands to pull each image into a `test_images\` folder.
+**3. Run the printed download commands** to pull each sampled image into
+a `test_images\` folder (gitignored — not committed to the repo).
 
 **4. Extract, if Kaggle wraps some files as zip** (this happens
 inconsistently depending on file size — some come through as plain `.png`,
@@ -97,13 +98,14 @@ not as a substitute for the training-time metric.
 
 - `preprocessing.py` — background mask, green channel, median filter, CLAHE, resize (identical to the training notebook)
 - `model.py` — ResNet50 + Dropout + Dense(1) head, `layer3`+`layer4` unfrozen (must match training config for the checkpoint's weights to load correctly)
-- `dataset.py` — only needed if you retrain locally, not for inference
-- `train.py` — full training script if you ever want to retrain/fine-tune locally on a GPU machine, mirrors the Kaggle max-accuracy config (weighted sampling, ReduceLROnPlateau, mixed precision, patience=10)
+- `train.py` — full training script if you ever want to retrain/fine-tune locally on a GPU machine, mirrors the Kaggle max-accuracy config (weighted sampling, ReduceLROnPlateau, mixed precision, patience=10). Requires `dataset.py`-style logic from the Kaggle notebook if run locally — not included here, since retraining is done on Kaggle, not locally.
 - `predict.py` — single-image inference, the one you'll run day-to-day
 - `sample_test_images.py` — picks a balanced sample of test image IDs from `train.csv` and prints Kaggle download commands
 - `evaluate_samples.py` — batch-tests the model against `test_images\` and reports accuracy/QWK on that sample
-- `best_model.pt` — trained weights (place here manually, not included in the code files)
+- `best_model.pt` — trained weights, committed directly to the repo (~90MB, under GitHub's 100MB limit)
+- `train.csv` — APTOS labels (`id_code` -> `diagnosis`), committed directly so `sample_test_images.py` works out of the box without re-downloading via Kaggle
 - `__results___18_0.png` — training/validation loss and QWK curves from the Kaggle run (reference only, not used by any script)
+- `.gitignore` — excludes `venv/`, `__pycache__/`, `test_images/`, and Kaggle credentials from version control
 
 ## Important: don't change `model.py`'s `freeze_until_layer`
 
