@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#do notchange variable names below frontend kinda needs these exact keys
+#do not change variable names below frontend kinda needs these exact keys
 class DiagnosisResponse(BaseModel):
     continuous_score: float      # raw decimal from dense layer
     clamped_score: float         # bounded between 0.0 and 4.0
@@ -33,7 +33,8 @@ async def diagnose(file: UploadFile = File(...)):
     # read the raw image file sent from frontend formdata
     image_bytes = await file.read()
     
-    # pytorch logic will go here but check once
+    # pytorch logic will go here but (check the order once pls)
+    
     # 1. run the image through preprocessing pipeline(check on the order ekbar)
     # 2. feed it into resnet model
     # 3. get gradients for gradcam heatmap
@@ -53,5 +54,5 @@ async def diagnose(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    # run server on localhost port 8000
+    # run server on localhost port 8000(need uvicorn for this)
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
