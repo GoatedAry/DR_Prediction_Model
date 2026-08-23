@@ -1,0 +1,23 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Dataset files (large, pull via Kaggle API instead of committing)
+test_images/
+
+# Model checkpoint: included in repo (fits under GitHub's 100MB limit)
+# best_model.pt
+# train.csv
+
+# Kaggle credentials — never commit these
+kaggle.json
+access_token
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
