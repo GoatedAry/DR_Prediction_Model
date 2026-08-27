@@ -2,19 +2,17 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-
 app = FastAPI(title="DR Diagnosis API", version="1.0")
 
-# allow cors so the react app can fetch data without errors
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-#do not change variable names below frontend kinda needs these exact keys
+# Do not change variable names below, frontend expects these keys
 class DiagnosisResponse(BaseModel):
     continuous_score: float      # raw decimal from dense layer
     clamped_score: float         # bounded between 0.0 and 4.0
@@ -28,20 +26,15 @@ class DiagnosisResponse(BaseModel):
 def health_check():
     return {"status": "Backend is up"}
 
+@app.post("/predict", response_model=DiagnosisResponse)
 @app.post("/api/diagnose", response_model=DiagnosisResponse)
 async def diagnose(file: UploadFile = File(...)):
     # read the raw image file sent from frontend formdata
     image_bytes = await file.read()
     
-    # pytorch logic will go here but (check the order once pls)
+    # Pytorch logic will go here
     
-    # 1. run the image through preprocessing pipeline(check on the order ekbar)
-    # 2. feed it into resnet model
-    # 3. get gradients for gradcam heatmap
-    # 4. return the exact format below
-    
-    # mock data for testing
-    # delete this return once the real model is connected
+    # Mock data for testing
     return DiagnosisResponse(
         continuous_score=2.842,
         clamped_score=2.842,
@@ -54,5 +47,5 @@ async def diagnose(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    # run server on localhost port 8000(need uvicorn for this)
+    # run server on localhost port 8000
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

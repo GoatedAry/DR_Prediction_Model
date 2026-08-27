@@ -1,7 +1,6 @@
 "use client";
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
@@ -18,6 +17,44 @@ const GAP    = 0.11;
 
 // ─── Scatter radius for dissolve animation ────────────────────────────────────
 const SCATTER_RADIUS = 5.0;
+
+// ─── Custom theme-aware stars particle system ─────────────────────────────────
+function BackgroundStars({ theme }: { theme: "dark" | "light" }) {
+  const starCount = theme === "light" ? 600 : 300;
+
+  const [positions] = useMemo(() => {
+    const pos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const i3 = i * 3;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 25 + Math.random() * 35;
+      
+      pos[i3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      pos[i3 + 2] = r * Math.cos(phi);
+    }
+    return [pos];
+  }, [starCount]);
+
+  const starColor = theme === "light" ? "#000000" : "#ffffff";
+
+  return (
+    <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial
+        color={starColor}
+        size={theme === "light" ? 0.16 : 0.08}
+        sizeAttenuation
+        transparent
+        opacity={theme === "light" ? 0.90 : 0.65}
+        depthWrite={false}
+      />
+    </points>
+  );
+}
 
 // ─── Parametric particle generator ───────────────────────────────────────────
 function buildParticles() {
@@ -80,6 +117,8 @@ function buildParticles() {
 interface BiometricEyeProps {
   hoverStrength: number;
   dismissTarget: number;
+  showEye: boolean;
+  theme: "dark" | "light";
   onDismissComplete?: () => void;
   onReformComplete?: () => void;
 }
@@ -87,6 +126,8 @@ interface BiometricEyeProps {
 function BiometricEye({
   hoverStrength,
   dismissTarget,
+  showEye,
+  theme,
   onDismissComplete,
   onReformComplete,
 }: BiometricEyeProps) {
@@ -98,6 +139,7 @@ function BiometricEye({
   const activeStrength = useRef(0);
   const redPhase       = useRef(0);
   const currentDismiss = useRef(0);
+  const eyeOpacity     = useRef(0.0); // Smooth welcome fade-in
   const firedDismiss   = useRef(false);
   const firedReform    = useRef(true); // starts true since eye starts open
   const hasMoved       = useRef(false);
@@ -117,6 +159,10 @@ function BiometricEye({
   useFrame((state, delta) => {
     // ── Lerp dismiss state toward target ──────────────────────────────────────
     currentDismiss.current += (dismissTarget - currentDismiss.current) * 0.04;
+
+    // ── Smooth welcome eye opacity fade-in transition ────────────────────────
+    const targetOpacity = showEye ? 0.90 : 0.0;
+    eyeOpacity.current += (targetOpacity - eyeOpacity.current) * 0.05;
 
     // ── Fire callbacks at animation thresholds ────────────────────────────────
     if (currentDismiss.current > 0.97 && !firedDismiss.current) {
@@ -183,7 +229,7 @@ function BiometricEye({
 
     // ── Material: opacity fade + size swell ───────────────────────────────────
     if (redMatRef.current) {
-      redMatRef.current.opacity = 0.90 * opacityFade;
+      redMatRef.current.opacity = eyeOpacity.current * opacityFade;
       redMatRef.current.size    = 0.017 * (1.0 + activeStrength.current * 0.15);
     }
 
@@ -227,11 +273,12 @@ function BiometricEye({
         </bufferGeometry>
         <pointsMaterial
           ref={redMatRef}
-          color="#E30022"
+          color={theme === "light" ? "#8B0000" : "#E30022"}
+          blending={theme === "light" ? THREE.NormalBlending : THREE.AdditiveBlending}
           size={0.017}
           sizeAttenuation
           transparent
-          opacity={0.90}
+          opacity={0.0}
           depthWrite={false}
         />
       </points>
@@ -240,38 +287,38 @@ function BiometricEye({
 }
 
 // ─── Scene root ───────────────────────────────────────────────────────────────
-export default function Scene({
-  hoverStrength = 0,
-  dismissTarget = 0,
-  onDismissComplete,
-  onReformComplete,
-}: {
+interface SceneProps {
   hoverStrength?: number;
   dismissTarget?: number;
+  showEye?: boolean;
+  theme?: "dark" | "light";
   onDismissComplete?: () => void;
   onReformComplete?: () => void;
-}) {
+}
+
+export default function Scene(props: SceneProps) {
+  const {
+    hoverStrength = 0,
+    dismissTarget = 0,
+    showEye = true,
+    theme = "dark",
+    onDismissComplete,
+    onReformComplete,
+  } = props;
+
   return (
     <div className="w-full h-full">
       <Canvas
         camera={{ position: [0, 0, 5], fov: 50 }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
       >
-        <color attach="background" args={["#000000"]} />
-
-        <Stars
-          radius={190}
-          depth={25}
-          count={260}
-          factor={6.5}
-          saturation={0}
-          fade
-          speed={1.3}
-        />
+        <BackgroundStars key={theme} theme={theme} />
 
         <BiometricEye
           hoverStrength={hoverStrength}
           dismissTarget={dismissTarget}
+          showEye={showEye}
+          theme={theme}
           onDismissComplete={onDismissComplete}
           onReformComplete={onReformComplete}
         />

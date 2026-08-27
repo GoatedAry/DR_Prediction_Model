@@ -15,6 +15,7 @@ export interface LocationHub {
 interface LocationGatewayProps {
   onLocationSelect?: (hub: LocationHub) => void;
   inline?: boolean;
+  theme?: "dark" | "light";
 }
 
 // ─── Preset Hubs ──────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ const PRESET_HUBS: LocationHub[] = [
   { city: "Bengaluru (South Hub)", pin: "560001", hospitals: 36, probability: 0.91 },
 ];
 
-// Estimate hospital count & scanner availability from PIN prefix (no public API for these)
+// Estimate hospital count & scanner availability from PIN prefix
 function estimateRegionalStats(pinCode: string): { hospitals: number; probability: number } {
   const stateCode = pinCode.charAt(0);
   switch (stateCode) {
@@ -45,7 +46,7 @@ function estimateRegionalStats(pinCode: string): { hospitals: number; probabilit
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function LocationGateway({ onLocationSelect, inline = false }: LocationGatewayProps) {
+export default function LocationGateway({ onLocationSelect, inline = false, theme = "dark" }: LocationGatewayProps) {
   const [activeHub, setActiveHub] = useState<LocationHub | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   
@@ -132,50 +133,72 @@ export default function LocationGateway({ onLocationSelect, inline = false }: Lo
   return (
     <>
       {/* ── Location Indicator Badge ── */}
-      <div
-        className={`font-mono text-[10px] tracking-wider uppercase flex items-center gap-3 select-none ${
-          inline
-            ? ""
-            : "absolute top-6 right-6 z-30 border border-white/10 bg-black/90 p-3.5"
-        }`}
-      >
-        <div className="flex items-center gap-1.5 text-white/40">
-          <MapPin size={11} className="text-white/60" />
-          <span>Region:</span>
-        </div>
-        <span className="text-white font-semibold">
-          {activeHub ? `${activeHub.pin} (${activeHub.city.split(" ")[0]})` : "Not Set"}
-        </span>
+      {inline ? (
         <button
           onClick={() => setIsOpen(true)}
-          className="text-white hover:text-white/80 font-bold px-1 transition-colors hover:underline cursor-pointer"
+          className={`font-mono text-[9px] tracking-wider uppercase flex items-center gap-1.5 select-none cursor-pointer border px-3 py-1.5 transition-colors ${
+            theme === "light"
+              ? "border-black/15 bg-white text-black hover:border-black/30"
+              : "border-white/10 bg-neutral-950 text-white hover:border-white/30"
+          }`}
         >
-          [Change Region]
+          <MapPin size={10} className={theme === "light" ? "text-black/50" : "text-white/50"} />
+          <span className="font-semibold">
+            {activeHub ? `${activeHub.pin} (${activeHub.city.split(" ")[0]})` : "Not Set"}
+          </span>
         </button>
-      </div>
+      ) : (
+        <div
+          className={`font-mono text-[10px] tracking-wider uppercase flex items-center gap-3 select-none absolute top-6 right-6 z-30 border p-3.5 ${
+            theme === "light"
+              ? "border-black/10 bg-white/95 text-black"
+              : "border-white/10 bg-black/90 text-white"
+          }`}
+        >
+          <div className={`flex items-center gap-1.5 ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
+            <MapPin size={11} className={theme === "light" ? "text-black/60" : "text-white/60"} />
+            <span>Region:</span>
+          </div>
+          <span className="font-semibold">
+            {activeHub ? `${activeHub.pin} (${activeHub.city.split(" ")[0]})` : "Not Set"}
+          </span>
+          <button
+            onClick={() => setIsOpen(true)}
+            className={`font-bold px-1 transition-colors hover:underline cursor-pointer ${
+              theme === "light" ? "text-black hover:text-black/80" : "text-white hover:text-white/80"
+            }`}
+          >
+            [Change Region]
+          </button>
+        </div>
+      )}
 
-      {/* ── Location Selection Modal (Clean Medical Interface) ── */}
+      {/* ── Location Selection Modal ── */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div 
-            className="w-full max-w-lg bg-zinc-950 border border-white/10 flex flex-col font-sans text-white p-6"
-            style={{
-              boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)"
-            }}
+            className={`w-full max-w-lg border flex flex-col font-sans p-6 rounded-none ${
+              theme === "light"
+                ? "bg-zinc-100 border-black/15 text-black"
+                : "bg-zinc-950 border-white/10 text-white"
+            }`}
+            style={{ boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)" }}
           >
             {/* Header */}
-            <div className="flex items-start justify-between pb-4 border-b border-white/10">
+            <div className={`flex items-start justify-between pb-4 border-b ${
+              theme === "light" ? "border-black/10" : "border-white/10"
+            }`}>
               <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-semibold tracking-wider text-white uppercase font-mono">
+                <h2 className="text-sm font-semibold tracking-wider uppercase font-mono">
                   Regional Screening Center Locator
                 </h2>
-                <p className="text-[10px] text-white/50 leading-relaxed max-w-sm">
+                <p className={`text-[10px] leading-relaxed max-w-sm ${theme === "light" ? "text-black/60" : "text-white/50"}`}>
                   Select your region to route diagnostic results to the nearest available facility.
                 </p>
               </div>
               <button 
                 onClick={() => setIsOpen(false)}
-                className="text-white/40 hover:text-white transition-colors cursor-pointer p-1"
+                className={`transition-colors cursor-pointer p-1 ${theme === "light" ? "text-black/40 hover:text-black" : "text-white/40 hover:text-white"}`}
               >
                 <X size={16} />
               </button>
@@ -186,10 +209,10 @@ export default function LocationGateway({ onLocationSelect, inline = false }: Lo
               
               {/* Preset Regional Hub List */}
               <div className="flex flex-col gap-3">
-                <h3 className="text-[10px] font-mono tracking-widest text-white/40 uppercase">
+                <h3 className={`text-[10px] font-mono tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
                   Available Regional Hubs
                 </h3>
-                <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-1 border border-white/5">
+                <div className={`flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-1 border ${theme === "light" ? "border-black/5" : "border-white/5"}`}>
                   {PRESET_HUBS.map((hub) => {
                     const isSelected = activeHub?.pin === hub.pin;
                     return (
@@ -198,8 +221,8 @@ export default function LocationGateway({ onLocationSelect, inline = false }: Lo
                         onClick={() => selectHub(hub)}
                         className={`group border p-3 flex items-center justify-between cursor-pointer transition-all duration-150 rounded-none ${
                           isSelected 
-                            ? "bg-white text-black border-white" 
-                            : "bg-black border-white/5 hover:border-white/20 text-white"
+                            ? (theme === "light" ? "bg-black text-white border-black" : "bg-white text-black border-white") 
+                            : (theme === "light" ? "bg-white border-black/5 hover:border-black/20 text-black" : "bg-black border-white/5 hover:border-white/20 text-white")
                         }`}
                       >
                         <div className="flex flex-col gap-1">
@@ -220,7 +243,7 @@ export default function LocationGateway({ onLocationSelect, inline = false }: Lo
                             <span className="text-xs font-semibold font-mono">{(hub.probability * 100).toFixed(0)}%</span>
                           </div>
                           {isSelected && (
-                            <Check size={14} className="text-black" />
+                            <Check size={14} className={theme === "light" ? "text-white" : "text-black"} />
                           )}
                         </div>
                       </div>
@@ -231,7 +254,7 @@ export default function LocationGateway({ onLocationSelect, inline = false }: Lo
 
               {/* Custom Indian PIN Code Resolver */}
               <div className="flex flex-col gap-3 pt-2">
-                <h3 className="text-[10px] font-mono tracking-widest text-white/40 uppercase">
+                <h3 className={`text-[10px] font-mono tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
                   Find Nearest Center by PIN Code
                 </h3>
 
@@ -243,53 +266,57 @@ export default function LocationGateway({ onLocationSelect, inline = false }: Lo
                     onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
                     placeholder="Enter 6-digit postal code"
                     disabled={resolving}
-                    className="flex-1 bg-black border border-white/10 px-4 py-2.5 text-xs font-mono tracking-widest uppercase focus:outline-none focus:border-white/30 rounded-none text-white disabled:opacity-50"
+                    className={`flex-1 border px-4 py-2.5 text-xs font-mono tracking-widest uppercase focus:outline-none rounded-none disabled:opacity-50 ${
+                      theme === "light"
+                        ? "bg-white border-black/10 text-black focus:border-black/30"
+                        : "bg-black border-white/10 text-white focus:border-white/30"
+                    }`}
                   />
                   <button
                     onClick={handleResolvePin}
                     disabled={pinInput.length !== 6 || resolving}
-                    className="border border-white hover:bg-white hover:text-black transition-colors font-mono text-[10px] tracking-widest font-bold px-6 py-2.5 uppercase cursor-pointer disabled:opacity-40 disabled:hover:bg-black disabled:hover:text-white"
+                    className={`border px-6 py-2.5 text-xs font-mono tracking-widest uppercase transition-all duration-150 rounded-none disabled:opacity-30 disabled:cursor-not-allowed ${
+                      theme === "light"
+                        ? "bg-black text-white hover:bg-neutral-800 border-black"
+                        : "bg-white text-black hover:bg-neutral-200 border-white"
+                    }`}
                   >
-                    {resolving ? "Looking up..." : "Apply"}
+                    Resolve
                   </button>
                 </div>
 
+                {/* Error & Resolved Result UI */}
                 {errorMsg && (
-                  <div className="text-red-400 text-[9px] uppercase tracking-wide">
-                    {errorMsg}
+                  <div className="text-[10px] font-mono text-red-500 uppercase">
+                    Error: {errorMsg}
                   </div>
                 )}
 
-                {/* Resolved Result Actions */}
                 {resolvedResult && (
-                  <div 
+                  <div
                     onClick={() => selectHub(resolvedResult)}
-                    className="border border-white/20 bg-white/5 p-4 flex items-center justify-between cursor-pointer hover:border-white/40 transition-all rounded-none"
+                    className={`border p-3 flex items-center justify-between cursor-pointer transition-all duration-150 rounded-none ${
+                      theme === "light"
+                        ? "bg-neutral-50 hover:bg-neutral-100 border-black/10 text-black"
+                        : "bg-zinc-900 hover:bg-zinc-800 border-white/10 text-white"
+                    }`}
                   >
                     <div className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold text-white tracking-wide">
+                      <span className="text-xs font-semibold tracking-wide">
                         {resolvedResult.city}
                       </span>
                       <div className="flex gap-4 text-[9px] font-mono opacity-60">
                         <span>PIN: {resolvedResult.pin}</span>
-                        <span>Facilities: {resolvedResult.hospitals}</span>
+                        <span>{resolvedResult.hospitals} Facilities</span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-4">
-                      <div className="flex flex-col items-end">
-                        <span className="text-[8px] opacity-40 uppercase tracking-widest font-mono">Scanner Estimate</span>
-                        <span className="text-xs font-semibold font-mono text-white">
-                          {(resolvedResult.probability * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                      <span className="text-white text-[9px] tracking-widest border border-white/20 px-2.5 py-1 uppercase hover:bg-white hover:text-black font-mono">
-                        Select
-                      </span>
-                    </div>
+                    <span className="text-xs font-mono font-semibold">
+                      [Select Resolved Center]
+                    </span>
                   </div>
                 )}
               </div>
+
             </div>
           </div>
         </div>
