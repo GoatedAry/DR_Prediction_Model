@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { MapPin, Building, Check, X } from "lucide-react";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -49,12 +50,18 @@ function estimateRegionalStats(pinCode: string): { hospitals: number; probabilit
 export default function LocationGateway({ onLocationSelect, inline = false, theme = "dark" }: LocationGatewayProps) {
   const [activeHub, setActiveHub] = useState<LocationHub | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   
   // Form input states
   const [pinInput, setPinInput] = useState("");
   const [resolving, setResolving] = useState(false);
   const [resolvedResult, setResolvedResult] = useState<LocationHub | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   // Client-side hydration of active hub
   useEffect(() => {
@@ -130,6 +137,155 @@ export default function LocationGateway({ onLocationSelect, inline = false, them
     }
   };
 
+  const modalPortal = (isOpen && mounted) ? createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div 
+        className={`w-full max-w-lg border flex flex-col font-sans p-6 rounded-none max-h-[90vh] ${
+          theme === "light"
+            ? "bg-zinc-100 border-black/15 text-black"
+            : "bg-zinc-950 border-white/10 text-white"
+        }`}
+        style={{ boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)" }}
+      >
+        {/* Header */}
+        <div className={`flex items-start justify-between pb-4 border-b flex-shrink-0 ${
+          theme === "light" ? "border-black/10" : "border-white/10"
+        }`}>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-sm font-semibold tracking-wider uppercase font-mono">
+              Regional Screening Center Locator
+            </h2>
+            <p className={`text-[10px] leading-relaxed max-w-sm ${theme === "light" ? "text-black/60" : "text-white/50"}`}>
+              Select your region to route diagnostic results to the nearest available facility.
+            </p>
+          </div>
+          <button 
+            onClick={() => setIsOpen(false)}
+            className={`transition-colors cursor-pointer p-1 ${theme === "light" ? "text-black/40 hover:text-black" : "text-white/40 hover:text-white"}`}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="py-6 flex flex-col gap-6 overflow-y-auto max-h-[70vh]">
+          
+          {/* Preset Regional Hub List */}
+          <div className="flex flex-col gap-3">
+            <h3 className={`text-[10px] font-mono tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
+              Available Regional Hubs
+            </h3>
+            <div className={`flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-1 border ${theme === "light" ? "border-black/5" : "border-white/5"}`}>
+              {PRESET_HUBS.map((hub) => {
+                const isSelected = activeHub?.pin === hub.pin;
+                return (
+                  <div
+                    key={hub.pin}
+                    onClick={() => selectHub(hub)}
+                    className={`group border p-3 flex items-center justify-between cursor-pointer transition-all duration-150 rounded-none ${
+                      isSelected 
+                        ? (theme === "light" ? "bg-black text-white border-black" : "bg-white text-black border-white") 
+                        : (theme === "light" ? "bg-white border-black/5 hover:border-black/20 text-black" : "bg-black border-white/5 hover:border-white/20 text-white")
+                    }`}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold tracking-wide">{hub.city}</span>
+                      <div className="flex gap-4 text-[9px] font-mono tracking-wider opacity-60">
+                        <span className="flex items-center gap-1">
+                          <MapPin size={9} /> PIN: {hub.pin}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Building size={9} /> {hub.hospitals} Active Facilities
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[8px] opacity-40 uppercase tracking-widest font-mono">Availability</span>
+                        <span className="text-xs font-semibold font-mono">{(hub.probability * 100).toFixed(0)}%</span>
+                      </div>
+                      {isSelected && (
+                        <Check size={14} className={theme === "light" ? "text-white" : "text-black"} />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Custom Indian PIN Code Resolver */}
+          <div className="flex flex-col gap-3 pt-2">
+            <h3 className={`text-[10px] font-mono tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
+              Find Nearest Center by PIN Code
+            </h3>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                maxLength={6}
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
+                placeholder="Enter 6-digit postal code"
+                disabled={resolving}
+                className={`flex-1 border px-4 py-2.5 text-xs font-mono tracking-widest uppercase focus:outline-none rounded-none disabled:opacity-50 ${
+                  theme === "light"
+                    ? "bg-white border-black/10 text-black focus:border-black/30"
+                    : "bg-black border-white/10 text-white focus:border-white/30"
+                }`}
+              />
+              <button
+                onClick={handleResolvePin}
+                disabled={pinInput.length !== 6 || resolving}
+                className={`border px-6 py-2.5 text-xs font-mono tracking-widest uppercase transition-all duration-150 rounded-none disabled:opacity-30 disabled:cursor-not-allowed ${
+                  theme === "light"
+                    ? "bg-black text-white hover:bg-neutral-800 border-black"
+                    : "bg-white text-black hover:bg-neutral-200 border-white"
+                }`}
+              >
+                Resolve
+              </button>
+            </div>
+
+            {/* Error & Resolved Result UI */}
+            {errorMsg && (
+              <div className="text-[10px] font-mono text-red-500 uppercase">
+                Error: {errorMsg}
+              </div>
+            )}
+
+            {resolvedResult && (
+              <div
+                onClick={() => selectHub(resolvedResult)}
+                className={`border p-3 flex items-center justify-between cursor-pointer transition-all duration-150 rounded-none ${
+                  theme === "light"
+                    ? "bg-neutral-50 hover:bg-neutral-100 border-black/10 text-black"
+                    : "bg-zinc-900 hover:bg-zinc-800 border-white/10 text-white"
+                }`}
+              >
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold tracking-wide">
+                    {resolvedResult.city}
+                  </span>
+                  <div className="flex gap-4 text-[9px] font-mono opacity-60">
+                    <span>PIN: {resolvedResult.pin}</span>
+                    <span>{resolvedResult.hospitals} Facilities</span>
+                  </div>
+                </div>
+                <span className="text-xs font-mono font-semibold">
+                  [Select Resolved Center]
+                </span>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
   return (
     <>
       {/* ── Location Indicator Badge ── */}
@@ -173,154 +329,7 @@ export default function LocationGateway({ onLocationSelect, inline = false, them
         </div>
       )}
 
-      {/* ── Location Selection Modal ── */}
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div 
-            className={`w-full max-w-lg border flex flex-col font-sans p-6 rounded-none ${
-              theme === "light"
-                ? "bg-zinc-100 border-black/15 text-black"
-                : "bg-zinc-950 border-white/10 text-white"
-            }`}
-            style={{ boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)" }}
-          >
-            {/* Header */}
-            <div className={`flex items-start justify-between pb-4 border-b ${
-              theme === "light" ? "border-black/10" : "border-white/10"
-            }`}>
-              <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-semibold tracking-wider uppercase font-mono">
-                  Regional Screening Center Locator
-                </h2>
-                <p className={`text-[10px] leading-relaxed max-w-sm ${theme === "light" ? "text-black/60" : "text-white/50"}`}>
-                  Select your region to route diagnostic results to the nearest available facility.
-                </p>
-              </div>
-              <button 
-                onClick={() => setIsOpen(false)}
-                className={`transition-colors cursor-pointer p-1 ${theme === "light" ? "text-black/40 hover:text-black" : "text-white/40 hover:text-white"}`}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="py-6 flex flex-col gap-6 overflow-y-auto max-h-[70vh]">
-              
-              {/* Preset Regional Hub List */}
-              <div className="flex flex-col gap-3">
-                <h3 className={`text-[10px] font-mono tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
-                  Available Regional Hubs
-                </h3>
-                <div className={`flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-1 border ${theme === "light" ? "border-black/5" : "border-white/5"}`}>
-                  {PRESET_HUBS.map((hub) => {
-                    const isSelected = activeHub?.pin === hub.pin;
-                    return (
-                      <div
-                        key={hub.pin}
-                        onClick={() => selectHub(hub)}
-                        className={`group border p-3 flex items-center justify-between cursor-pointer transition-all duration-150 rounded-none ${
-                          isSelected 
-                            ? (theme === "light" ? "bg-black text-white border-black" : "bg-white text-black border-white") 
-                            : (theme === "light" ? "bg-white border-black/5 hover:border-black/20 text-black" : "bg-black border-white/5 hover:border-white/20 text-white")
-                        }`}
-                      >
-                        <div className="flex flex-col gap-1">
-                          <span className="text-xs font-semibold tracking-wide">{hub.city}</span>
-                          <div className="flex gap-4 text-[9px] font-mono tracking-wider opacity-60">
-                            <span className="flex items-center gap-1">
-                              <MapPin size={9} /> PIN: {hub.pin}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Building size={9} /> {hub.hospitals} Active Facilities
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <div className="flex flex-col items-end">
-                            <span className="text-[8px] opacity-40 uppercase tracking-widest font-mono">Availability</span>
-                            <span className="text-xs font-semibold font-mono">{(hub.probability * 100).toFixed(0)}%</span>
-                          </div>
-                          {isSelected && (
-                            <Check size={14} className={theme === "light" ? "text-white" : "text-black"} />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Custom Indian PIN Code Resolver */}
-              <div className="flex flex-col gap-3 pt-2">
-                <h3 className={`text-[10px] font-mono tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
-                  Find Nearest Center by PIN Code
-                </h3>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Enter 6-digit postal code"
-                    disabled={resolving}
-                    className={`flex-1 border px-4 py-2.5 text-xs font-mono tracking-widest uppercase focus:outline-none rounded-none disabled:opacity-50 ${
-                      theme === "light"
-                        ? "bg-white border-black/10 text-black focus:border-black/30"
-                        : "bg-black border-white/10 text-white focus:border-white/30"
-                    }`}
-                  />
-                  <button
-                    onClick={handleResolvePin}
-                    disabled={pinInput.length !== 6 || resolving}
-                    className={`border px-6 py-2.5 text-xs font-mono tracking-widest uppercase transition-all duration-150 rounded-none disabled:opacity-30 disabled:cursor-not-allowed ${
-                      theme === "light"
-                        ? "bg-black text-white hover:bg-neutral-800 border-black"
-                        : "bg-white text-black hover:bg-neutral-200 border-white"
-                    }`}
-                  >
-                    Resolve
-                  </button>
-                </div>
-
-                {/* Error & Resolved Result UI */}
-                {errorMsg && (
-                  <div className="text-[10px] font-mono text-red-500 uppercase">
-                    Error: {errorMsg}
-                  </div>
-                )}
-
-                {resolvedResult && (
-                  <div
-                    onClick={() => selectHub(resolvedResult)}
-                    className={`border p-3 flex items-center justify-between cursor-pointer transition-all duration-150 rounded-none ${
-                      theme === "light"
-                        ? "bg-neutral-50 hover:bg-neutral-100 border-black/10 text-black"
-                        : "bg-zinc-900 hover:bg-zinc-800 border-white/10 text-white"
-                    }`}
-                  >
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold tracking-wide">
-                        {resolvedResult.city}
-                      </span>
-                      <div className="flex gap-4 text-[9px] font-mono opacity-60">
-                        <span>PIN: {resolvedResult.pin}</span>
-                        <span>{resolvedResult.hospitals} Facilities</span>
-                      </div>
-                    </div>
-                    <span className="text-xs font-mono font-semibold">
-                      [Select Resolved Center]
-                    </span>
-                  </div>
-                )}
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
+      {modalPortal}
     </>
   );
 }

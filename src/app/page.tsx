@@ -98,8 +98,8 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // ── Sync HTML/Body class and background for clean transitions ────────────────
   useEffect(() => {
+    document.body.style.transition = "background-color 0.5s ease-out, color 0.5s ease-out, border-color 0.5s ease-out";
     if (theme === "light") {
       document.documentElement.classList.add("light");
       document.body.style.backgroundColor = "#ffffff";
