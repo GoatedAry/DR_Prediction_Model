@@ -110,15 +110,31 @@ function buildParticles() {
     scatterDirs[i * 3 + 2] = Math.cos(phi) * magnitude;
   }
 
-  return { redBase, redDists, scatterDirs };
+  // ── 3D Circular Torus Loading Ring Target ──────────────────────────────────
+  const ringBase = new Float32Array(TOTAL_RED * 3);
+  const ringR = 1.05;
+  const tubeR = 0.18;
+  for (let i = 0; i < TOTAL_RED; i++) {
+    const u = (i / TOTAL_RED) * Math.PI * 2;
+    const v = ((i * 13) % 100 / 100) * Math.PI * 2;
+    const tubeSpread = tubeR * (0.4 + Math.random() * 0.6);
+    ringBase[i * 3]     = (ringR + tubeSpread * Math.cos(v)) * Math.cos(u);
+    ringBase[i * 3 + 1] = (ringR + tubeSpread * Math.cos(v)) * Math.sin(u);
+    ringBase[i * 3 + 2] = tubeSpread * Math.sin(v);
+  }
+
+  return { redBase, redDists, scatterDirs, ringBase };
 }
 
-// ─── Biometric particle eye with dismiss/reform animation ─────────────────────
+// ─── Biometric particle eye with morphing capabilities ────────────────────────
+export type MorphPhase = "eye" | "ring";
+
 interface BiometricEyeProps {
   hoverStrength: number;
   dismissTarget: number;
   showEye: boolean;
   theme: "dark" | "light";
+  morphState?: MorphPhase;
   onDismissComplete?: () => void;
   onReformComplete?: () => void;
 }
@@ -128,6 +144,7 @@ function BiometricEye({
   dismissTarget,
   showEye,
   theme,
+  morphState = "eye",
   onDismissComplete,
   onReformComplete,
 }: BiometricEyeProps) {
@@ -139,9 +156,10 @@ function BiometricEye({
   const activeStrength = useRef(0);
   const redPhase       = useRef(0);
   const currentDismiss = useRef(0);
-  const eyeOpacity     = useRef(0.0); // Smooth welcome fade-in
+  const eyeOpacity     = useRef(0.0);
+  const ringAngle      = useRef(0);
   const firedDismiss   = useRef(false);
-  const firedReform    = useRef(true); // starts true since eye starts open
+  const firedReform    = useRef(true);
   const hasMoved       = useRef(false);
 
   // Keep callback refs fresh to avoid stale closures in useFrame
@@ -150,7 +168,7 @@ function BiometricEye({
   useEffect(() => { onDismissRef.current = onDismissComplete; }, [onDismissComplete]);
   useEffect(() => { onReformRef.current = onReformComplete; }, [onReformComplete]);
 
-  const { redBase, redDists, scatterDirs } = useMemo(() => buildParticles(), []);
+  const { redBase, redDists, scatterDirs, ringBase } = useMemo(() => buildParticles(), []);
 
   // Reference-stable animation buffer
   const redAnim = useMemo(() => new Float32Array(TOTAL_RED * 3), []);
@@ -182,58 +200,80 @@ function BiometricEye({
     let scatterFactor = 0;
 
     if (d < 0.4) {
-      // Eyelids closing/opening phase (0.0 to 0.4)
       closeFactor = d / 0.4;
       scatterFactor = 0;
     } else {
-      // Scattering/pull-back phase (0.4 to 1.0)
       closeFactor = 1.0;
       scatterFactor = (d - 0.4) / 0.6;
     }
-    const opacityFade   = 1.0 - scatterFactor;
+    const opacityFade = 1.0 - scatterFactor;
 
-    // ── Hover breathing (only active when eye is open) ────────────────────────
-    const effectiveHover = dismissTarget === 0 && d < 0.05 ? hoverStrength : 0;
+    // ── Hover breathing ───────────────────────────────────────────────────────
+    const effectiveHover = dismissTarget === 0 && d < 0.05 && morphState === "eye" ? hoverStrength : 0;
     activeStrength.current += (effectiveHover - activeStrength.current) * 0.042;
 
     const speedMult = 1.0 + activeStrength.current * 1.4;
     const ampMult   = 1.0 + activeStrength.current * 1.1;
     redPhase.current += delta * 1.30 * speedMult;
 
-    // ── Red particles: breathing + eyelid-close + scatter ─────────────────────
+    // ── Morph State Transitions & Coordinate Processing ───────────────────────
     const rBuf = redBufRef.current;
     if (rBuf) {
-      for (let i = 0; i < TOTAL_RED; i++) {
-        const bx   = redBase[i * 3];
-        const by   = redBase[i * 3 + 1];
-        const bz   = redBase[i * 3 + 2];
-        const dist = redDists[i];
+      if (morphState === "ring") {
+        // Spinning 3D Circular Torus Loading Ring
+        ringAngle.current += delta * 2.8;
+        const cosA = Math.cos(ringAngle.current);
+        const sinA = Math.sin(ringAngle.current);
+        const tiltCos = Math.cos(0.40);
+        const tiltSin = Math.sin(0.40);
 
-        // Z-axis breathing ripple
-        const breathZ = Math.sin(redPhase.current + dist * 3.30) * 0.065 * ampMult;
+        for (let i = 0; i < TOTAL_RED; i++) {
+          const rx = ringBase[i * 3];
+          const ry = ringBase[i * 3 + 1];
+          const rz = ringBase[i * 3 + 2];
 
-        // Phase 1: Eyelid close — squish y toward 0
-        const closedY = by * (1.0 - closeFactor * 0.95);
+          const rotX = rx * cosA - ry * sinA;
+          const rotY = rx * sinA + ry * cosA;
+          const targetX = rotX;
+          const targetY = rotY * tiltCos - rz * tiltSin;
+          const targetZ = rotY * tiltSin + rz * tiltCos;
 
-        // Phase 2: Scatter — fly outward along pre-computed random directions
-        const sx = bx     + scatterDirs[i * 3]     * scatterFactor * SCATTER_RADIUS;
-        const sy = closedY + scatterDirs[i * 3 + 1] * scatterFactor * SCATTER_RADIUS;
-        const sz = bz + breathZ + scatterDirs[i * 3 + 2] * scatterFactor * SCATTER_RADIUS;
+          redAnim[i * 3]     += (targetX - redAnim[i * 3]) * 0.09;
+          redAnim[i * 3 + 1] += (targetY - redAnim[i * 3 + 1]) * 0.09;
+          redAnim[i * 3 + 2] += (targetZ - redAnim[i * 3 + 2]) * 0.09;
+        }
+      } else {
+        // Original Standard Eye (Exact original algorithm preserved)
+        for (let i = 0; i < TOTAL_RED; i++) {
+          const bx   = redBase[i * 3];
+          const by   = redBase[i * 3 + 1];
+          const bz   = redBase[i * 3 + 2];
+          const dist = redDists[i];
 
-        redAnim[i * 3]     = sx;
-        redAnim[i * 3 + 1] = sy;
-        redAnim[i * 3 + 2] = sz;
+          const breathZ = Math.sin(redPhase.current + dist * 3.30) * 0.065 * ampMult;
+          const closedY = by * (1.0 - closeFactor * 0.95);
+
+          const sx = bx     + scatterDirs[i * 3]     * scatterFactor * SCATTER_RADIUS;
+          const sy = closedY + scatterDirs[i * 3 + 1] * scatterFactor * SCATTER_RADIUS;
+          const sz = bz + breathZ + scatterDirs[i * 3 + 2] * scatterFactor * SCATTER_RADIUS;
+
+          redAnim[i * 3]     += (sx - redAnim[i * 3]) * 0.12;
+          redAnim[i * 3 + 1] += (sy - redAnim[i * 3 + 1]) * 0.12;
+          redAnim[i * 3 + 2] += (sz - redAnim[i * 3 + 2]) * 0.12;
+        }
       }
       rBuf.needsUpdate = true;
     }
 
-    // ── Material: opacity fade + size swell ───────────────────────────────────
+    // ── Material ──────────────────────────────────────────────────────────────
     if (redMatRef.current) {
-      redMatRef.current.opacity = eyeOpacity.current * opacityFade;
-      redMatRef.current.size    = 0.017 * (1.0 + activeStrength.current * 0.15);
+      const morphOpacity = morphState === "ring" ? 0.95 : eyeOpacity.current * opacityFade;
+      redMatRef.current.opacity = morphOpacity;
+      const sizeBoost = morphState === "ring" ? 0.019 : 0.017;
+      redMatRef.current.size = sizeBoost * (1.0 + activeStrength.current * 0.15);
     }
 
-    // ── Mouse tracking coordinates corrected for top navigation bar ──────────
+    // ── Mouse tracking coordinates ────────────────────────────────────────────
     if (state.pointer.x !== 0 || state.pointer.y !== 0) {
       hasMoved.current = true;
     }
@@ -243,21 +283,29 @@ function BiometricEye({
     // ── Group: cursor-tracking tilt + hover scale ─────────────────────────────
     const grp = groupRef.current;
     if (grp) {
-      const tx = THREE.MathUtils.clamp(-py * 0.38, -0.42, 0.42);
-      const ty = THREE.MathUtils.clamp( px * 0.38, -0.42, 0.42);
-      grp.rotation.x = THREE.MathUtils.lerp(grp.rotation.x, tx, 0.042);
-      grp.rotation.y = THREE.MathUtils.lerp(grp.rotation.y, ty, 0.042);
+      if (morphState === "eye") {
+        const tx = THREE.MathUtils.clamp(-py * 0.38, -0.42, 0.42);
+        const ty = THREE.MathUtils.clamp( px * 0.38, -0.42, 0.42);
+        grp.rotation.x = THREE.MathUtils.lerp(grp.rotation.x, tx, 0.042);
+        grp.rotation.y = THREE.MathUtils.lerp(grp.rotation.y, ty, 0.042);
+        grp.rotation.z = THREE.MathUtils.lerp(grp.rotation.z, 0, 0.042);
+        grp.position.y = THREE.MathUtils.lerp(grp.position.y, 0, 0.05);
 
-      const targetScale = 1.0 + activeStrength.current * 0.18;
-      grp.scale.setScalar(targetScale);
+        const targetScale = 1.0 * (1.0 + activeStrength.current * 0.18);
+        grp.scale.setScalar(targetScale);
+      } else {
+        grp.rotation.x = THREE.MathUtils.lerp(grp.rotation.x, 0, 0.05);
+        grp.rotation.y = THREE.MathUtils.lerp(grp.rotation.y, 0, 0.05);
+        grp.scale.setScalar(THREE.MathUtils.lerp(grp.scale.x, 1.0, 0.05));
+      }
     }
 
     // ── Camera: subtle depth parallax ─────────────────────────────────────────
     state.camera.position.x = THREE.MathUtils.lerp(
-      state.camera.position.x, px * 0.45, 0.03,
+      state.camera.position.x, px * 0.35, 0.03,
     );
     state.camera.position.y = THREE.MathUtils.lerp(
-      state.camera.position.y, py * 0.28, 0.03,
+      state.camera.position.y, py * 0.22, 0.03,
     );
   });
 
@@ -292,6 +340,7 @@ interface SceneProps {
   dismissTarget?: number;
   showEye?: boolean;
   theme?: "dark" | "light";
+  morphState?: MorphPhase;
   onDismissComplete?: () => void;
   onReformComplete?: () => void;
 }
@@ -302,6 +351,7 @@ export default function Scene(props: SceneProps) {
     dismissTarget = 0,
     showEye = true,
     theme = "dark",
+    morphState = "eye",
     onDismissComplete,
     onReformComplete,
   } = props;
@@ -319,6 +369,7 @@ export default function Scene(props: SceneProps) {
           dismissTarget={dismissTarget}
           showEye={showEye}
           theme={theme}
+          morphState={morphState}
           onDismissComplete={onDismissComplete}
           onReformComplete={onReformComplete}
         />
