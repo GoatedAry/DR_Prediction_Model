@@ -1,0 +1,19 @@
+=== Leave-One-Participant-Out: Exp5 full multimodal ===
+macro_auroc                 : 0.807
+macro_f1                    : 0.623
+balanced_accuracy           : 0.627
+macro_precision             : 0.622
+macro_recall                : 0.627
+brier_score                 : 0.160
+expected_calibration_error  : 0.074
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.800  spec=0.833
+  Pre-T2D    sens=0.438  spec=0.724
+  T2D        sens=0.643  spec=0.871
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       12        3    0
+Pre-T2D        5        7    4
+T2D            0        5    9

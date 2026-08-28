@@ -1,0 +1,159 @@
+=== Exp0_majority_baseline ===
+macro_auroc                 : 0.473
+macro_f1                    : 0.237
+balanced_accuracy           : 0.317
+macro_precision             : 0.222
+macro_recall                : 0.317
+brier_score                 : 0.223
+expected_calibration_error  : 0.000
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.200  spec=0.800
+  Pre-T2D    sens=0.750  spec=0.172
+  T2D        sens=0.000  spec=1.000
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy        3       12    0
+Pre-T2D        4       12    0
+T2D            2       12    0
+
+=== Exp1_clinical_no_a1c ===
+macro_auroc                 : 0.863
+macro_f1                    : 0.716
+balanced_accuracy           : 0.715
+macro_precision             : 0.720
+macro_recall                : 0.715
+brier_score                 : 0.139
+expected_calibration_error  : 0.078
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.733  spec=0.833
+  Pre-T2D    sens=0.625  spec=0.793
+  T2D        sens=0.786  spec=0.935
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       11        4    0
+Pre-T2D        4       10    2
+T2D            1        2   11
+
+=== Exp1b_clinical_with_a1c_SANITY ===
+macro_auroc                 : 0.997
+macro_f1                    : 0.957
+balanced_accuracy           : 0.957
+macro_precision             : 0.957
+macro_recall                : 0.957
+brier_score                 : 0.050
+expected_calibration_error  : 0.146
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.933  spec=0.967
+  Pre-T2D    sens=0.938  spec=0.966
+  T2D        sens=1.000  spec=1.000
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       14        1    0
+Pre-T2D        1       15    0
+T2D            0        0   14
+
+=== Exp2_cgm_only ===
+macro_auroc                 : 0.780
+macro_f1                    : 0.644
+balanced_accuracy           : 0.648
+macro_precision             : 0.644
+macro_recall                : 0.648
+brier_score                 : 0.164
+expected_calibration_error  : 0.049
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.800  spec=0.833
+  Pre-T2D    sens=0.500  spec=0.759
+  T2D        sens=0.643  spec=0.871
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       12        2    1
+Pre-T2D        5        8    3
+T2D            0        5    9
+
+=== Exp3_clinical_no_a1c_plus_cgm ===
+macro_auroc                 : 0.816
+macro_f1                    : 0.672
+balanced_accuracy           : 0.668
+macro_precision             : 0.684
+macro_recall                : 0.668
+brier_score                 : 0.156
+expected_calibration_error  : 0.073
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.800  spec=0.833
+  Pre-T2D    sens=0.562  spec=0.724
+  T2D        sens=0.643  spec=0.935
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       12        3    0
+Pre-T2D        5        9    2
+T2D            0        5    9
+
+=== Exp4_plus_activity ===
+macro_auroc                 : 0.817
+macro_f1                    : 0.672
+balanced_accuracy           : 0.668
+macro_precision             : 0.684
+macro_recall                : 0.668
+brier_score                 : 0.155
+expected_calibration_error  : 0.052
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.800  spec=0.833
+  Pre-T2D    sens=0.562  spec=0.724
+  T2D        sens=0.643  spec=0.935
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       12        3    0
+Pre-T2D        5        9    2
+T2D            0        5    9
+
+=== Exp5_full_multimodal ===
+macro_auroc                 : 0.806
+macro_f1                    : 0.694
+balanced_accuracy           : 0.692
+macro_precision             : 0.701
+macro_recall                : 0.692
+brier_score                 : 0.157
+expected_calibration_error  : 0.058
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.800  spec=0.833
+  Pre-T2D    sens=0.562  spec=0.759
+  T2D        sens=0.714  spec=0.935
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       12        3    0
+Pre-T2D        5        9    2
+T2D            0        4   10
+
+=== Exp5b_full_multimodal_with_a1c_SANITY ===
+macro_auroc                 : 0.978
+macro_f1                    : 0.912
+balanced_accuracy           : 0.912
+macro_precision             : 0.914
+macro_recall                : 0.912
+brier_score                 : 0.062
+expected_calibration_error  : 0.156
+
+Per-class sensitivity / specificity:
+  Healthy    sens=0.933  spec=1.000
+  Pre-T2D    sens=0.875  spec=0.931
+  T2D        sens=0.929  spec=0.935
+
+Confusion matrix (rows=true, cols=pred):
+         Healthy  Pre-T2D  T2D
+Healthy       14        1    0
+Pre-T2D        0       14    2
+T2D            0        1   13
