@@ -1,2 +1,59 @@
-\venv
-\.pytest_cache
+# --- Secrets ---------------------------------------------------------------
+.env
+.env.*
+*.key
+
+# --- Python ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environment -------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+
+# --- Testing / linting caches --------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Jupyter ---------------------------------------------------------------
+.ipynb_checkpoints/
+
+# --- IDE / editor ------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+
+# --- OS ------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- CGMacros dataset --------------------------------------------------
+# Third-party dataset (~45MB+) -- too large/undesirable to commit, and
+# config.py auto-detects it wherever it's placed, so there's no need to
+# version-control it. Anyone cloning the repo re-adds it locally per the
+# README / CGMACROS_DATA_ROOT instructions.
+CGMacros/
+data/
+
+# --- Generated model artifacts ------------------------------------------
+# Uncomment these if you don't want trained models/results tracked in git
+# (e.g. if you regenerate them via the pipeline rather than versioning them).
+# Leave them commented if you DO want the trained model checked in so
+# collaborators/graders can run inference without retraining.
+# artifacts/*.joblib
+# results/
+
+# --- Logs / temp ---------------------------------------------------------
+*.log
+tmp/
+*.tmp
