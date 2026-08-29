@@ -1,16 +1,11 @@
 """
-Evaluate the model against ground truth labels and measure Quadratic Weighted Kappa (QWK).
-Supports comparing baseline predictions against Test-Time Augmentation (TTA).
-
-Usage:
-    python evaluate_samples.py --folder test_images --checkpoint best_model.pt --tta
+Evaluate the model against ground truth labels and measure Quadratic Weighted Kappa.
 """
 
 import argparse
 import os
 import numpy as np
 from sklearn.metrics import cohen_kappa_score
-
 from predict import predict
 
 TRUE_LABELS = {
@@ -20,7 +15,6 @@ TRUE_LABELS = {
     "3e3a3955b9c5": 3, "b191ba0a2b12": 3, "697538183db5": 3,
     "ed3a0fc5b546": 4, "838c87c63422": 4, "4a7dc013e802": 4,
 }
-
 
 def main(folder: str, checkpoint: str, use_tta: bool):
     results = []
@@ -34,7 +28,7 @@ def main(folder: str, checkpoint: str, use_tta: bool):
         raw_score, pred_class, pred_name, uncertainty = predict(
             img_path, checkpoint, use_tta=use_tta, mc_samples=5
         )
-        correct = "✓" if pred_class == true_class else "✗"
+        correct = "Yes" if pred_class == true_class else "No"
         off_by = abs(pred_class - true_class)
 
         results.append({
@@ -48,33 +42,28 @@ def main(folder: str, checkpoint: str, use_tta: bool):
         })
 
     if not results:
-        print("No images found in the target directory. Check --folder path.")
+        print("No images found. Check folder path.")
         return
 
-    mode = "TTA Enabled (4x)" if use_tta else "Standard Baseline"
-    print(f"\n--- Evaluation Mode: {mode} ---")
-    print(f"{'id_code':<16}{'true':<6}{'pred':<6}{'raw_score':<12}{'match':<7}{'off_by':<8}{'uncertainty'}")
-    print("-" * 68)
+    print(f"\n{'id_code':<16}{'true':<6}{'pred':<6}{'raw_score':<12}{'match':<7}{'off_by':<8}{'uncertainty'}")
     for r in results:
         print(f"{r['id_code']:<16}{r['true_class']:<6}{r['pred_class']:<6}"
-              f"{r['raw_score']:<12.3f}{r['correct']:<7}{r['off_by']:<8}±{r['uncertainty']:.3f}")
+              f"{r['raw_score']:<12.3f}{r['correct']:<7}{r['off_by']:<8}+/- {r['uncertainty']:.3f}")
 
     y_true = [r["true_class"] for r in results]
     y_pred = [r["pred_class"] for r in results]
 
-    accuracy = sum(1 for r in results if r["correct"] == "✓") / len(results)
+    accuracy = sum(1 for r in results if r["correct"] == "Yes") / len(results)
     qwk = cohen_kappa_score(y_true, y_pred, weights="quadratic")
 
-    print("-" * 68)
-    print(f"Exact-match accuracy: {accuracy:.2%} ({sum(1 for r in results if r['correct']=='✓')}/{len(results)})")
+    print(f"\nExact match accuracy: {accuracy:.2%}")
     print(f"QWK on this sample  : {qwk:.4f}")
-    print(f"Mean |off_by|       : {np.mean([r['off_by'] for r in results]):.2f} stages")
-
+    print(f"Mean off by value   : {np.mean([r['off_by'] for r in results]):.2f} stages")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder", default="test_images")
     parser.add_argument("--checkpoint", default="best_model.pt")
-    parser.add_argument("--tta", action="store_true", help="Run evaluation using Test-Time Augmentation")
+    parser.add_argument("--tta", action="store_true")
     args = parser.parse_args()
     main(args.folder, args.checkpoint, args.tta)

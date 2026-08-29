@@ -1,7 +1,7 @@
 """
 Model architectures for DR staging:
-- DROrdinalRegressor: ResNet50 backbone (Matches best_model.pt weights)
-- MedicalDROrdinalRegressor: EfficientNet-B3 with Monte Carlo Dropout uncertainty support
+* DROrdinalRegressor: ResNet50 backbone
+* MedicalDROrdinalRegressor: EfficientNet B3 with Monte Carlo Dropout uncertainty support
 """
 
 import torch
@@ -10,9 +10,6 @@ from torchvision.models import (
     resnet50, ResNet50_Weights,
     efficientnet_b3, EfficientNet_B3_Weights
 )
-
-
-# ---------------------------- ResNet50 (Current Checkpoint) ----------------------------
 
 class DROrdinalRegressor(nn.Module):
     def __init__(self, dropout: float = 0.4, freeze_until_layer: str = "layer3"):
@@ -42,20 +39,15 @@ class DROrdinalRegressor(nn.Module):
     def forward(self, x, mc_dropout: bool = False):
         features = self.backbone(x)
         if mc_dropout:
-            # Force dropout active during evaluation for uncertainty estimation
             features = nn.functional.dropout(features, p=0.4, training=True)
             out = self.head[1](features)
         else:
             out = self.head(features)
         return out.squeeze(1)
 
-
 def build_model(device: torch.device, dropout: float = 0.4) -> DROrdinalRegressor:
     model = DROrdinalRegressor(dropout=dropout)
     return model.to(device)
-
-
-# ---------------------------- EfficientNet-B3 (V2 Upgrade) ----------------------------
 
 class MedicalDROrdinalRegressor(nn.Module):
     def __init__(self, dropout: float = 0.5):
@@ -82,7 +74,6 @@ class MedicalDROrdinalRegressor(nn.Module):
             features = nn.functional.dropout(features, p=self.dropout_rate, training=self.training)
             out = self.regressor(features)
         return out.squeeze(1)
-
 
 def build_v2_model(device: torch.device, dropout: float = 0.5) -> MedicalDROrdinalRegressor:
     model = MedicalDROrdinalRegressor(dropout=dropout)
