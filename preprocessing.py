@@ -1,13 +1,14 @@
 """
 Preprocessing pipeline for Diabetic Retinopathy fundus images.
-Implements: Background Masking -> Green Channel Isolation -> Median Filtering
-            -> CLAHE -> Resize (224x224) -> 3-channel recreation
-Matches the pipeline used in the Kaggle training notebook exactly.
+- V1: Background Masking -> Green Channel -> Median Filter -> CLAHE -> 224x224 (Matches best_model.pt)
+- V2: Circular Contour Masking -> Graham Gaussian Lighting Normalization -> Dynamic Sizing
 """
 
 import cv2
 import numpy as np
 
+
+# ---------------------------- V1 Pipeline (best_model.pt Compatible) ----------------------------
 
 def mask_background(img: np.ndarray, threshold: int = 10) -> np.ndarray:
     """Crop out the black background surrounding the fundus ROI."""
@@ -29,7 +30,7 @@ def isolate_green_channel(img: np.ndarray) -> np.ndarray:
 
 
 def median_filter(img: np.ndarray, ksize: int = 3) -> np.ndarray:
-    """Remove salt-and-pepper noise while preserving lesion edges."""
+    """Remove noise while preserving lesion edges."""
     return cv2.medianBlur(img, ksize)
 
 
@@ -46,7 +47,7 @@ def resize_and_stack(img: np.ndarray, size: int = 224) -> np.ndarray:
 
 
 def preprocess_fundus_image(image_path: str, size: int = 224) -> np.ndarray:
-    """Full pipeline. Returns a (size, size, 3) uint8 array ready for the model."""
+    """Full V1 pipeline. Returns a (size, size, 3) uint8 array ready for the ResNet50 model."""
     img = cv2.imread(image_path, cv2.IMREAD_COLOR)
     if img is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
@@ -59,11 +60,47 @@ def preprocess_fundus_image(image_path: str, size: int = 224) -> np.ndarray:
     return final
 
 
+# ---------------------------- V2 Pipeline (Clinical / Retraining Upgrades) ----------------------------
+
+def crop_image_from_gray(img: np.ndarray, tol: int = 7) -> np.ndarray:
+    """Detect circular retinal boundary and tightly crop out surrounding darkness."""
+    if img.ndim == 2:
+        mask = img > tol
+        return img[np.ix_(mask.any(1), mask.any(0))]
+    elif img.ndim == 3:
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        mask = gray_img > tol
+        check_shape = img[:, :, 0][np.ix_(mask.any(1), mask.any(0))].shape[0]
+        if check_shape == 0:
+            return img
+        img1 = img[:, :, 0][np.ix_(mask.any(1), mask.any(0))]
+        img2 = img[:, :, 1][np.ix_(mask.any(1), mask.any(0))]
+        img3 = img[:, :, 2][np.ix_(mask.any(1), mask.any(0))]
+        return np.stack([img1, img2, img3], axis=-1)
+    return img
+
+
+def ben_graham_preprocessing(image_path: str, size: int = 224) -> np.ndarray:
+    """V2 Pipeline: Circular crop + Ben Graham local lighting normalization."""
+    img = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+
+    img = crop_image_from_gray(img)
+    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
+    # Subtract local Gaussian blur to remove camera lighting inconsistencies
+    blurred = cv2.GaussianBlur(img, (0, 0), sigmaX=size / 30)
+    enhanced = cv2.addWeighted(img, 4, blurred, -4, 128)
+    return enhanced
+
+
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) != 3:
-        print("Usage: python preprocessing.py <input_image> <output_image>")
+    if len(sys.argv) < 3:
+        print("Usage: python preprocessing.py <input_image> <output_image> [--v2]")
         sys.exit(1)
-    out = preprocess_fundus_image(sys.argv[1])
+    
+    use_v2 = "--v2" in sys.argv
+    out = ben_graham_preprocessing(sys.argv[1]) if use_v2 else preprocess_fundus_image(sys.argv[1])
     cv2.imwrite(sys.argv[2], out)
-    print(f"Saved preprocessed image to {sys.argv[2]}")
+    print(f"Saved preprocessed image to {sys.argv[2]} using {'V2 (Graham)' if use_v2 else 'V1 (CLAHE)'} pipeline.")

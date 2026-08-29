@@ -2,7 +2,7 @@
 Pick 2-3 sample id_codes per DR class from train.csv, and print the exact
 Kaggle download commands to fetch just those images (no full dataset needed).
 
-Usage (PowerShell):
+Usage:
     python sample_test_images.py --csv train.csv --per_class 3
 """
 
@@ -31,7 +31,7 @@ def main(csv_path: str, per_class: int, seed: int):
         all_ids.extend([(cid, cls) for cid in ids])
         print(f"Class {cls} ({STAGE_NAMES[cls]}): {ids}")
 
-    print("\n--- Kaggle download commands (copy-paste into PowerShell) ---\n")
+    print("\n--- Kaggle download commands (copy-paste into terminal) ---\n")
     for id_code, cls in all_ids:
         print(f'kaggle competitions download -c aptos2019-blindness-detection '
               f'-f train_images/{id_code}.png -p test_images')
