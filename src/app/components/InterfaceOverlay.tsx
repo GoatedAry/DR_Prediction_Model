@@ -9,7 +9,7 @@ export interface DiagnosticState {
   clamped_score: number;
   integer_stage: number;
   stage_label: string;
-  val_mse_loss: number;
+  val_mse_loss: number | null;
   peak_qwk: number;
   gradcam_base64: string;
 }
@@ -175,7 +175,7 @@ export default function TelemetryPanel({ data }: TelemetryPanelProps) {
             >
               <TelemetryRow label="Clamped Score" value={data.clamped_score.toFixed(3)} index={0} />
               <TelemetryRow label="Integer Stage" value={String(data.integer_stage)} index={1} />
-              <TelemetryRow label="Val MSE Loss" value={data.val_mse_loss.toFixed(4)} index={2} />
+              <TelemetryRow label="Val MSE Loss" value={data.val_mse_loss !== null && data.val_mse_loss !== undefined ? data.val_mse_loss.toFixed(4) : "N/A"} index={2} />
               <TelemetryRow label="Peak QWK" value={data.peak_qwk.toFixed(4)} index={3} />
               <TelemetryRow
                 label="GradCAM"

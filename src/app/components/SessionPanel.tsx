@@ -9,7 +9,7 @@ export interface DiagnosticHistoryItem {
   stageLabel: string;
   confidence: number;
   previewUrl?: string | null;
-  val_mse_loss?: number;
+  val_mse_loss?: number | null;
   peak_qwk?: number;
 }
 
@@ -18,6 +18,32 @@ interface SessionPanelProps {
   userEmail?: string;
   history?: DiagnosticHistoryItem[];
   onSelectHistoryItem?: (item: DiagnosticHistoryItem) => void;
+}
+
+function getStageTheme(stage: number, isLight: boolean) {
+  switch (stage) {
+    case 0:
+      return isLight
+        ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+        : "bg-emerald-950/40 text-emerald-400 border-emerald-600/40";
+    case 1:
+      return isLight
+        ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+        : "bg-yellow-950/40 text-yellow-400 border-yellow-600/40";
+    case 2:
+      return isLight
+        ? "bg-amber-100 text-amber-800 border-amber-300"
+        : "bg-amber-950/40 text-amber-400 border-amber-600/40";
+    case 3:
+      return isLight
+        ? "bg-orange-100 text-orange-800 border-orange-300"
+        : "bg-orange-950/40 text-orange-400 border-orange-600/40";
+    case 4:
+    default:
+      return isLight
+        ? "bg-red-100 text-red-800 border-red-300"
+        : "bg-red-950/40 text-red-400 border-red-600/40";
+  }
 }
 
 export default function SessionPanel({
@@ -45,22 +71,17 @@ export default function SessionPanel({
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between pb-2.5 border-b border-inherit mb-3">
+      <div className="pb-2 border-b border-inherit mb-2.5">
         <span className="font-bold tracking-[0.18em] uppercase text-[10px]">
           SESSION
-        </span>
-        <span className={`text-[8.5px] px-1.5 py-0.5 border ${
-          isLight ? "border-black/20 text-black/60" : "border-white/20 text-white/60"
-        }`}>
-          ACTIVE
         </span>
       </div>
 
       {/* 1. Time of Login */}
-      <div className="flex flex-col gap-1.5 pb-3 border-b border-inherit mb-3 text-[9px]">
+      <div className="flex flex-col gap-1.5 pb-2.5 border-b border-inherit mb-2.5 text-[9px]">
         <div className="flex justify-between">
           <span className={isLight ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>User:</span>
-          <span className="font-medium truncate max-w-[130px]">{userEmail}</span>
+          <span className="font-medium truncate max-w-[140px]">{userEmail?.toLowerCase().includes("guest") ? "Guest" : userEmail}</span>
         </div>
         <div className="flex justify-between">
           <span className={isLight ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Login:</span>
@@ -102,15 +123,20 @@ export default function SessionPanel({
                 }`}
                 title="Click to view full screen report"
               >
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium tracking-wide">
-                    Stage {item.stage}: {item.stageLabel}
+                <div className="flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 border text-[8px] font-bold uppercase tracking-wider shrink-0 ${getStageTheme(item.stage, isLight)}`}>
+                    Stage {item.stage}
                   </span>
-                  <span className={isLight ? "text-neutral-400" : "text-neutral-500"}>
-                    {item.timestamp}
-                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-medium tracking-wide">
+                      {item.stageLabel}
+                    </span>
+                    <span className={isLight ? "text-neutral-400" : "text-neutral-500"}>
+                      {item.timestamp}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <span className={`font-medium ${isLight ? "text-neutral-900" : "text-neutral-200"}`}>
                     {(item.confidence * 100).toFixed(0)}%
                   </span>

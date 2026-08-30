@@ -7,6 +7,7 @@ import { useDropzone } from "react-dropzone";
 import { Sun, Moon, RotateCcw, ArrowLeft } from "lucide-react";
 import LocationGateway, { LocationHub } from "./components/LocationGateway";
 import SessionPanel, { DiagnosticHistoryItem } from "./components/SessionPanel";
+import FontSizeController from "./components/FontSizeController";
 import { supabase } from "./lib/supabaseClient";
 import { MorphPhase } from "./components/Scene";
 
@@ -34,11 +35,12 @@ const Scene = dynamic(() => import("./components/Scene"), {
 });
 
 // ─── View State ───────────────────────────────────────────────────────────────
-type ActiveView = "idle" | "grader" | "report";
+type ActiveView = "idle" | "grader" | "report" | "ai_summary";
 
 const NAV_ITEMS = [
   { key: "grader" as const, label: "Diagnostic Grader", hoverStrength: 1.0 },
   { key: "report" as const, label: "Report Summary", hoverStrength: 0.65 },
+  { key: "ai_summary" as const, label: "AI Summary", hoverStrength: 0.5 },
 ] as const;
 
 // ─── Severity badge color ─────────────────────────────────────────────────────
@@ -65,8 +67,6 @@ export default function Home() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [user, setUser] = useState<any>(null);
   const [authStep, setAuthStep] = useState<"checking" | "ready">("checking");
-  const [authMode, setAuthMode] = useState<"email" | "phone">("email");
-  const [otpSent, setOtpSent] = useState(false);
 
   // Guest limitations state (Strictly 1 save for guests, in-memory only)
   const [savedCount, setSavedCount] = useState(0);
@@ -75,14 +75,18 @@ export default function Home() {
   // Location Hub state
   const [activeHub, setActiveHub] = useState<LocationHub | null>(null);
 
-  // Diagnostic history state (Per-account persisted in localStorage, guest in-memory only)
+  // Diagnostic history state (Per-account persisted in localStorage, guest in-memory and sessionStorage) - Cap 10 FIFO
   const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticHistoryItem[]>([]);
+  // Saved reports state (Feeds the Report Summary metrics cards)
+  const [savedReports, setSavedReports] = useState<DiagnosticHistoryItem[]>([]);
+  // Internal scan counter for session limits (10 for Guest, 50 for Authenticated)
+  const [totalScansCount, setTotalScansCount] = useState(0);
 
-  // Form Inputs
+  // Auth Mode: "login" vs "signup"
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   // Feedback States
   const [authError, setAuthError] = useState<string | null>(null);
@@ -97,9 +101,6 @@ export default function Home() {
 
   // Morph Animation Pipeline State
   const [morphState, setMorphState] = useState<MorphPhase>("eye");
-
-  // Mock OTP Authentication bypass state
-  const [isMockOtpMode, setIsMockOtpMode] = useState(false);
 
   // CSS staged fade-in / slide-up for authenticated panels
   const [dashboardVisible, setDashboardVisible] = useState(false);
@@ -124,14 +125,31 @@ export default function Home() {
     }
   }, [theme]);
 
-  // ── Account-specific History Loader ──────────────────────────────────────────
+  // ── Account-specific History and Saved Reports Loader ────────────────────────
   const loadAccountHistory = useCallback((currentUser: any) => {
     if (!currentUser || currentUser.isGuest) {
-      setDiagnosticHistory([]);
+      if (typeof window !== "undefined") {
+        const savedHistory = sessionStorage.getItem("netra_diagnostic_history");
+        if (savedHistory) {
+          try {
+            setDiagnosticHistory(JSON.parse(savedHistory));
+          } catch (e) {
+            console.error("Failed to parse guest history", e);
+          }
+        }
+        const savedRep = sessionStorage.getItem("netra_saved_reports");
+        if (savedRep) {
+          try {
+            setSavedReports(JSON.parse(savedRep));
+          } catch (e) {
+            console.error("Failed to parse guest saved reports", e);
+          }
+        }
+      }
       return;
     }
     const userKey = `dr_history_${currentUser.id || currentUser.email}`;
-    const stored = localStorage.getItem(userKey);
+    const stored = typeof window !== "undefined" ? localStorage.getItem(userKey) : null;
     if (stored) {
       try {
         setDiagnosticHistory(JSON.parse(stored));
@@ -141,6 +159,19 @@ export default function Home() {
       }
     } else {
       setDiagnosticHistory([]);
+    }
+
+    const savedKey = `dr_saved_reports_${currentUser.id || currentUser.email}`;
+    const storedSaved = typeof window !== "undefined" ? localStorage.getItem(savedKey) : null;
+    if (storedSaved) {
+      try {
+        setSavedReports(JSON.parse(storedSaved));
+      } catch (e) {
+        console.error("Failed to parse user saved reports", e);
+        setSavedReports([]);
+      }
+    } else {
+      setSavedReports([]);
     }
   }, []);
 
@@ -169,8 +200,64 @@ export default function Home() {
 
   const isInitialLoad = useRef(true);
 
-  // ── Session Checking on Mount ────────────────────────────────────────────────
+  // ── Session Checking on Mount (Supabase + Guest SessionStorage Rehydration) ──
   useEffect(() => {
+    // 1. Check for active guest session in sessionStorage
+    if (typeof window !== "undefined") {
+      const isGuestSession = sessionStorage.getItem("netra_guest_session");
+      if (isGuestSession === "true") {
+        isInitialLoad.current = false;
+        const guestUser = {
+          email: "Guest",
+          isGuest: true,
+          phone: "",
+          id: "guest-session",
+        };
+        setUser(guestUser);
+        setShowEye(true);
+        setDismissTarget(0.0);
+        setDashboardVisible(true);
+        setAuthStep("ready");
+
+        // Rehydrate scan data if available
+        const savedHistory = sessionStorage.getItem("netra_diagnostic_history");
+        if (savedHistory) {
+          try {
+            setDiagnosticHistory(JSON.parse(savedHistory));
+          } catch (e) {
+            console.warn("Failed to parse cached history:", e);
+          }
+        }
+
+        const savedRep = sessionStorage.getItem("netra_saved_reports");
+        if (savedRep) {
+          try {
+            const parsed = JSON.parse(savedRep);
+            setSavedReports(parsed);
+            setSavedCount(parsed.length);
+          } catch (e) {
+            console.warn("Failed to parse cached saved reports:", e);
+          }
+        }
+
+        const savedResults = sessionStorage.getItem("netra_diagnostic_results");
+        if (savedResults) {
+          try {
+            setResults(JSON.parse(savedResults));
+          } catch (e) {
+            console.warn("Failed to parse cached results:", e);
+          }
+        }
+
+        const savedPreview = sessionStorage.getItem("netra_preview_url");
+        if (savedPreview) {
+          setPreviewUrl(savedPreview);
+        }
+        return;
+      }
+    }
+
+    // 2. Supabase auth session listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         if (isInitialLoad.current) {
@@ -198,6 +285,7 @@ export default function Home() {
           setShowEye(false);
           setDismissTarget(1.0);
           setDiagnosticHistory([]);
+          setSavedReports([]);
           return null;
         });
       }
@@ -207,7 +295,40 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, [loadAccountHistory]);
 
-  // ── Authentication Actions ───────────────────────────────────────────────────
+  // ── SessionStorage Guest Data Syncing ────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window !== "undefined" && user?.isGuest) {
+      if (results) {
+        sessionStorage.setItem("netra_diagnostic_results", JSON.stringify(results));
+      } else {
+        sessionStorage.removeItem("netra_diagnostic_results");
+      }
+    }
+  }, [results, user?.isGuest]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && user?.isGuest) {
+      if (previewUrl) {
+        sessionStorage.setItem("netra_preview_url", previewUrl);
+      } else {
+        sessionStorage.removeItem("netra_preview_url");
+      }
+    }
+  }, [previewUrl, user?.isGuest]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && user?.isGuest) {
+      sessionStorage.setItem("netra_diagnostic_history", JSON.stringify(diagnosticHistory));
+    }
+  }, [diagnosticHistory, user?.isGuest]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && user?.isGuest) {
+      sessionStorage.setItem("netra_saved_reports", JSON.stringify(savedReports));
+    }
+  }, [savedReports, user?.isGuest]);
+
+  // ── Authentication Actions (Supabase Email / Password + Guest Access) ────────
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
@@ -218,26 +339,86 @@ export default function Home() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
       setAuthError(error.message.toUpperCase());
-    } else {
+    } else if (data?.user) {
       setAuthSuccess("SIGNED IN SUCCESSFULLY");
       setEmail("");
       setPassword("");
+      handleLoginSuccess(data.user);
     }
   };
 
-  const handleOAuthSignIn = async (provider: "google" | "github") => {
+  const handleEmailSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthSuccess(null);
+    setPasswordError(null);
+
+    if (!email || !password) {
+      setAuthError("EMAIL AND PASSWORD ARE REQUIRED");
+      return;
+    }
+
+    // Password Complexity Validation Rules
+    if (password.length < 8) {
+      const err = "PASSWORD MUST BE AT LEAST 8 CHARACTERS LONG";
+      setPasswordError(err);
+      setAuthError(err);
+      return;
+    }
+    if (!/[A-Z]/.test(password)) {
+      const err = "PASSWORD MUST CONTAIN AT LEAST ONE UPPERCASE LETTER";
+      setPasswordError(err);
+      setAuthError(err);
+      return;
+    }
+    if (!/[a-z]/.test(password)) {
+      const err = "PASSWORD MUST CONTAIN AT LEAST ONE LOWERCASE LETTER";
+      setPasswordError(err);
+      setAuthError(err);
+      return;
+    }
+    if (!/[0-9]/.test(password)) {
+      const err = "PASSWORD MUST CONTAIN AT LEAST ONE NUMBER";
+      setPasswordError(err);
+      setAuthError(err);
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (error) {
+      setAuthError(error.message.toUpperCase());
+    } else if (data?.user) {
+      if (data.session) {
+        setAuthSuccess("ACCOUNT CREATED SUCCESSFULLY");
+        setEmail("");
+        setPassword("");
+        setPasswordError(null);
+        handleLoginSuccess(data.user);
+      } else {
+        setAuthSuccess("REGISTRATION SUCCESSFUL. YOU CAN NOW LOG IN.");
+        setPasswordError(null);
+        setAuthMode("login");
+      }
+    }
+  };
+
+  const handleOAuthSignIn = async (provider: "google") => {
     setAuthError(null);
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
       },
     });
     if (error) {
@@ -245,141 +426,15 @@ export default function Home() {
     }
   };
 
-  const handleSendOtp = async () => {
-    setAuthError(null);
-    setAuthSuccess(null);
-    setIsMockOtpMode(false);
-
-    const rawDigits = phone.replace(/\D/g, "");
-    if (rawDigits.length !== 10) {
-      setAuthError("ENTER A VALID 10-DIGIT MOBILE NUMBER");
-      return;
-    }
-
-    const fullPhone = `+91${rawDigits}`;
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone: fullPhone,
-      });
-
-      if (error) {
-        if (error.message.toLowerCase().includes("provider") || error.status === 400) {
-          setIsMockOtpMode(true);
-          setOtpSent(true);
-          setAuthSuccess("OTP SIMULATED (BYPASS CODE: 123456)");
-        } else {
-          setAuthError(error.message.toUpperCase());
-        }
-      } else {
-        setOtpSent(true);
-        setAuthSuccess("OTP CODE SENT SUCCESSFULLY");
-      }
-    } catch (err: any) {
-      console.warn("Supabase OTP request failed, falling back to bypass mode:", err);
-      setIsMockOtpMode(true);
-      setOtpSent(true);
-      setAuthSuccess("OTP SIMULATED (BYPASS CODE: 123456)");
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    setAuthError(null);
-    setAuthSuccess(null);
-
-    const rawOtp = otp.replace(/\D/g, "");
-    if (rawOtp.length !== 6) {
-      setAuthError("ENTER A VALID 6-DIGIT OTP CODE");
-      return;
-    }
-
-    const rawDigits = phone.replace(/\D/g, "");
-    const fullPhone = `+91${rawDigits}`;
-
-    if (isMockOtpMode) {
-      if (rawOtp === "123456") {
-        setAuthSuccess("PHONE VERIFIED SUCCESSFULLY");
-        setOtp("");
-        setPhone("");
-        setOtpSent(false);
-        setIsMockOtpMode(false);
-
-        const mockUser = {
-          email: `${rawDigits}@MOBILE.LOCAL`,
-          phone: fullPhone,
-          isGuest: false,
-          id: `phone-${rawDigits}`
-        };
-        handleLoginSuccess(mockUser);
-      } else {
-        setAuthError("INVALID OTP CODE");
-      }
-      return;
-    }
-
-    try {
-      const { error, data } = await supabase.auth.verifyOtp({
-        phone: fullPhone,
-        token: rawOtp,
-        type: "sms",
-      });
-
-      if (error) {
-        if (rawOtp === "123456") {
-          setAuthSuccess("PHONE VERIFIED SUCCESSFULLY");
-          setOtp("");
-          setPhone("");
-          setOtpSent(false);
-          const mockUser = {
-            email: `${rawDigits}@MOBILE.LOCAL`,
-            phone: fullPhone,
-            isGuest: false,
-            id: `phone-${rawDigits}`
-          };
-          handleLoginSuccess(mockUser);
-        } else {
-          setAuthError(error.message.toUpperCase());
-        }
-      } else {
-        setAuthSuccess("PHONE VERIFIED SUCCESSFULLY");
-        setOtp("");
-        setPhone("");
-        setOtpSent(false);
-        if (data?.user) {
-          handleLoginSuccess(data.user);
-        } else {
-          const mockUser = {
-            email: `${rawDigits}@MOBILE.LOCAL`,
-            phone: fullPhone,
-            isGuest: false,
-            id: `phone-${rawDigits}`
-          };
-          handleLoginSuccess(mockUser);
-        }
-      }
-    } catch (err: any) {
-      if (rawOtp === "123456") {
-        setAuthSuccess("PHONE VERIFIED SUCCESSFULLY");
-        setOtp("");
-        setPhone("");
-        setOtpSent(false);
-        const mockUser = {
-          email: `${rawDigits}@MOBILE.LOCAL`,
-          phone: fullPhone,
-          isGuest: false,
-          id: `phone-${rawDigits}`
-        };
-        handleLoginSuccess(mockUser);
-      } else {
-        setAuthError("VERIFICATION FAILED");
-      }
-    }
-  };
-
   const handleGuestSignIn = () => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("netra_guest_session", "true");
+    }
     const guestUser = {
-      email: "GUEST@SYSTEM.LOCAL",
+      email: "Guest",
       isGuest: true,
-      phone: "GUEST NODE"
+      phone: "",
+      id: "guest-session",
     };
     handleLoginSuccess(guestUser);
   };
@@ -387,6 +442,13 @@ export default function Home() {
   const handleSignOut = async () => {
     setErrorMsg(null);
     setSaveMessage(null);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("netra_guest_session");
+      sessionStorage.removeItem("netra_diagnostic_results");
+      sessionStorage.removeItem("netra_preview_url");
+      sessionStorage.removeItem("netra_diagnostic_history");
+      sessionStorage.removeItem("netra_saved_reports");
+    }
     if (user?.isGuest) {
       setUser(null);
       setDashboardVisible(false);
@@ -394,14 +456,18 @@ export default function Home() {
       setDismissTarget(1.0);
       setSavedCount(0);
       setDiagnosticHistory([]);
+      setSavedReports([]);
+      setTotalScansCount(0);
     } else {
       await supabase.auth.signOut();
+      setSavedReports([]);
+      setTotalScansCount(0);
     }
     handleResetScan();
     handleNavClick("idle");
   };
 
-  // ── Guest save reports checker (Strictly 1 save allowed for guests) ─────────
+  // ── Save Report Handler (Feeds the Report Summary metrics) ──────────────────
   const handleSaveReport = () => {
     setErrorMsg(null);
     setSaveMessage(null);
@@ -409,18 +475,14 @@ export default function Home() {
     if (!results) return;
 
     if (user?.isGuest) {
-      if (savedCount >= 1) {
-        setErrorMsg("GUEST LIMIT REACHED (MAX 1 SAVE). SIGN IN TO SAVE UNLIMITED SCANS.");
-        return;
-      }
       setSavedCount((prev) => prev + 1);
-      setSaveMessage("SUCCESS: DIAGNOSTIC REPORT SAVED (1/1 GUEST LIMIT REACHED)");
-    } else {
       setSaveMessage("SUCCESS: DIAGNOSTIC REPORT SAVED");
+    } else {
+      setSaveMessage("SUCCESS: DIAGNOSTIC REPORT SAVED TO ARCHIVE");
     }
 
-    const newItem: DiagnosticHistoryItem = {
-      id: `scan-${Date.now()}`,
+    const savedItem: DiagnosticHistoryItem = {
+      id: `saved-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }),
       stage: results.integer_stage,
       stageLabel: results.stage_label.split("(")[0].trim(),
@@ -430,11 +492,15 @@ export default function Home() {
       peak_qwk: results.peak_qwk,
     };
 
-    setDiagnosticHistory((prev) => {
-      const updated = [newItem, ...prev.filter(item => item.previewUrl !== previewUrl).slice(0, 9)];
-      if (user && !user.isGuest) {
-        const userKey = `dr_history_${user.id || user.email}`;
-        localStorage.setItem(userKey, JSON.stringify(updated));
+    setSavedReports((prev) => {
+      const updated = [savedItem, ...prev];
+      if (typeof window !== "undefined") {
+        if (user?.isGuest) {
+          sessionStorage.setItem("netra_saved_reports", JSON.stringify(updated));
+        } else if (user) {
+          const userKey = `dr_saved_reports_${user.id || user.email}`;
+          localStorage.setItem(userKey, JSON.stringify(updated));
+        }
       }
       return updated;
     });
@@ -455,9 +521,11 @@ export default function Home() {
       setSaveMessage(null);
       setLoading(false);
     } else {
+      const wasIdle = activeView === "idle";
       setActiveView(view);
       setDismissTarget(1);
-      setContentReady(false);
+      // If already transitioned out of idle, content is ready immediately
+      setContentReady(!wasIdle);
     }
   };
 
@@ -489,6 +557,19 @@ export default function Home() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (!file) return;
+
+    // Internal scan limits: max 10 for guest, max 50 for authenticated
+    const isGuest = user?.isGuest;
+    const maxScans = isGuest ? 10 : 50;
+
+    if (totalScansCount >= maxScans) {
+      setErrorMsg(
+        isGuest
+          ? "GUEST SCAN LIMIT REACHED (MAX 10 SCANS). PLEASE CREATE AN ACCOUNT TO CONTINUE."
+          : "MAXIMUM SCAN LIMIT OF 50 REACHED FOR THIS SESSION."
+      );
+      return;
+    }
 
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
@@ -532,6 +613,7 @@ export default function Home() {
     try {
       const [data] = await Promise.all([fetchPromise, delayPromise]);
       setResults(data);
+      setTotalScansCount((prev) => prev + 1);
 
       const newItem: DiagnosticHistoryItem = {
         id: `scan-${Date.now()}`,
@@ -544,11 +626,14 @@ export default function Home() {
         peak_qwk: data.peak_qwk,
       };
 
+      // Cap Detailed Scan History at 10 items (FIFO)
       setDiagnosticHistory((prev) => {
-        const updated = [newItem, ...prev.slice(0, 9)];
+        const updated = [newItem, ...prev].slice(0, 10);
         if (user && !user.isGuest) {
           const userKey = `dr_history_${user.id || user.email}`;
-          localStorage.setItem(userKey, JSON.stringify(updated));
+          if (typeof window !== "undefined") {
+            localStorage.setItem(userKey, JSON.stringify(updated));
+          }
         }
         return updated;
       });
@@ -559,7 +644,7 @@ export default function Home() {
       setLoading(false);
       setMorphState("eye");
     }
-  }, [user]);
+  }, [user, totalScansCount]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -604,18 +689,18 @@ export default function Home() {
 
         {/* Centered Auth Card */}
         <div className={`w-full max-w-sm border p-6 flex flex-col gap-6 z-10 rounded-none relative ${
-          theme === "light" ? "bg-white border-black/20 text-black" : "bg-black border-white/20 text-white"
+          theme === "light" ? "bg-white border-black/20 text-black shadow-lg" : "bg-black border-white/20 text-white shadow-2xl"
         }`}>
           {/* Header */}
           <div className="flex items-center justify-between border-b pb-4 border-inherit">
             <div className="flex flex-col">
-              <span className="font-mono text-[10px] font-bold tracking-[0.2em] uppercase">
-                AUTHENTICATION
+              <span className="font-brand text-base font-bold tracking-widest uppercase">
+                NetraAI
               </span>
-              <span className={`font-mono text-[9px] tracking-wider uppercase ${
+              <span className={`font-mono text-[9px] tracking-wider uppercase mt-0.5 ${
                 theme === "light" ? "text-neutral-500" : "text-neutral-400"
               }`}>
-                SIGN IN TO CONTINUE
+                {authMode === "login" ? "SIGN IN TO CONTINUE" : "CREATE NEW ACCOUNT"}
               </span>
             </div>
 
@@ -644,190 +729,120 @@ export default function Home() {
             </div>
           )}
 
-          {/* Mode 1: Email + Password Login Form */}
-          {authMode === "email" ? (
-            <form onSubmit={handleEmailSignIn} className="flex flex-col gap-4 font-mono">
-              <div className="flex flex-col gap-1">
-                <label className={`text-[9px] uppercase tracking-wider ${
-                  theme === "light" ? "text-neutral-600" : "text-neutral-400"
-                }`}>
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@domain.com"
-                  className={`border px-3 py-2 text-xs focus:outline-none rounded-none font-sans ${
-                    theme === "light"
-                      ? "bg-white border-black/20 text-black focus:border-black/40"
-                      : "bg-black border-white/20 text-white focus:border-white/40"
-                  }`}
-                  required
-                />
-              </div>
+          {/* Auth Mode Switch Tabs */}
+          <div className="grid grid-cols-2 gap-1 p-1 border border-inherit font-mono text-[9px] uppercase tracking-wider">
+            <button
+              type="button"
+              onClick={() => { setAuthMode("login"); setAuthError(null); setAuthSuccess(null); }}
+              className={`py-1.5 font-bold transition-all cursor-pointer text-center ${
+                authMode === "login"
+                  ? (theme === "light" ? "bg-black text-white" : "bg-white text-black")
+                  : (theme === "light" ? "text-neutral-600 hover:text-black" : "text-neutral-400 hover:text-white")
+              }`}
+            >
+              Log In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthMode("signup"); setAuthError(null); setAuthSuccess(null); }}
+              className={`py-1.5 font-bold transition-all cursor-pointer text-center ${
+                authMode === "signup"
+                  ? (theme === "light" ? "bg-black text-white" : "bg-white text-black")
+                  : (theme === "light" ? "text-neutral-600 hover:text-black" : "text-neutral-400 hover:text-white")
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
 
-              <div className="flex flex-col gap-1">
-                <label className={`text-[9px] uppercase tracking-wider ${
-                  theme === "light" ? "text-neutral-600" : "text-neutral-400"
-                }`}>
-                  Password
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className={`border px-3 py-2 text-xs focus:outline-none rounded-none font-sans ${
-                    theme === "light"
-                      ? "bg-white border-black/20 text-black focus:border-black/40"
-                      : "bg-black border-white/20 text-white focus:border-white/40"
-                  }`}
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                className={`border py-2.5 text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer rounded-none mt-2 ${
+          {/* Email + Password Form */}
+          <form onSubmit={authMode === "login" ? handleEmailSignIn : handleEmailSignUp} className="flex flex-col gap-4 font-mono">
+            <div className="flex flex-col gap-1">
+              <label className={`text-[9px] uppercase tracking-wider ${
+                theme === "light" ? "text-neutral-600" : "text-neutral-400"
+              }`}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@domain.com"
+                className={`border px-3 py-2 text-xs focus:outline-none rounded-none font-sans ${
                   theme === "light"
-                    ? "border-black/30 text-black bg-white hover:bg-neutral-100"
-                    : "border-white/30 text-white bg-black hover:bg-neutral-900"
+                    ? "bg-white border-black/20 text-black focus:border-black/40"
+                    : "bg-black border-white/20 text-white focus:border-white/40"
                 }`}
-              >
-                [ Sign In ]
-              </button>
-            </form>
-          ) : (
-            /* Mode 2: Phone OTP Authentication */
-            <div className="flex flex-col gap-4 font-mono">
-              {!otpSent ? (
-                <>
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-[9px] uppercase tracking-wider ${
-                      theme === "light" ? "text-neutral-600" : "text-neutral-400"
-                    }`}>
-                      Mobile Number (+91)
-                    </label>
-                    <div className="flex">
-                      <span className={`border border-r-0 px-3 py-2 text-xs flex items-center ${
-                        theme === "light" ? "bg-neutral-100 border-black/20" : "bg-neutral-900 border-white/20"
-                      }`}>
-                        +91
-                      </span>
-                      <input
-                        type="tel"
-                        maxLength={10}
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
-                        placeholder="9876543210"
-                        className={`flex-1 border px-3 py-2 text-xs focus:outline-none rounded-none font-sans ${
-                          theme === "light"
-                            ? "bg-white border-black/20 text-black focus:border-black/40"
-                            : "bg-black border-white/20 text-white focus:border-white/40"
-                        }`}
-                      />
-                    </div>
-                  </div>
+                required
+              />
+            </div>
 
-                  <button
-                    onClick={handleSendOtp}
-                    className={`border py-2.5 text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer rounded-none mt-2 ${
-                      theme === "light"
-                        ? "border-black/30 text-black bg-white hover:bg-neutral-100"
-                        : "border-white/30 text-white bg-black hover:bg-neutral-900"
-                    }`}
-                  >
-                    [ Send OTP Code ]
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-[9px] uppercase tracking-wider ${
-                      theme === "light" ? "text-neutral-600" : "text-neutral-400"
-                    }`}>
-                      6-Digit Code
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                      placeholder="123456"
-                      className={`border px-3 py-2 text-xs focus:outline-none rounded-none font-sans tracking-widest text-center ${
-                        theme === "light"
-                          ? "bg-white border-black/20 text-black focus:border-black/40"
-                          : "bg-black border-white/20 text-white focus:border-white/40"
-                      }`}
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleVerifyOtp}
-                    className={`border py-2.5 text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer rounded-none mt-2 ${
-                      theme === "light"
-                        ? "border-black/30 text-black bg-white hover:bg-neutral-100"
-                        : "border-white/30 text-white bg-black hover:bg-neutral-900"
-                    }`}
-                  >
-                    [ Verify & Enter ]
-                  </button>
-
-                  <button
-                    onClick={() => { setOtpSent(false); setOtp(""); }}
-                    className={`text-[8.5px] uppercase tracking-widest text-center py-1 transition-colors cursor-pointer ${
-                      theme === "light"
-                        ? "border-black/10 text-black/50 bg-white hover:bg-neutral-100 hover:text-black"
-                        : "border-white/10 text-white/50 bg-black hover:bg-neutral-900 hover:text-white"
-                    }`}
-                  >
-                    Use Different Number
-                  </button>
-                </>
+            <div className="flex flex-col gap-1">
+              <label className={`text-[9px] uppercase tracking-wider ${
+                theme === "light" ? "text-neutral-600" : "text-neutral-400"
+              }`}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (passwordError) setPasswordError(null);
+                }}
+                placeholder="••••••••••••"
+                className={`border px-3 py-2 text-xs focus:outline-none rounded-none font-sans ${
+                  passwordError
+                    ? "border-red-500 text-red-500"
+                    : (theme === "light"
+                        ? "bg-white border-black/20 text-black focus:border-black/40"
+                        : "bg-black border-white/20 text-white focus:border-white/40")
+                }`}
+                required
+              />
+              {authMode === "signup" && passwordError && (
+                <span className="text-red-500 text-[8.5px] font-mono tracking-tight uppercase mt-0.5">
+                  {passwordError}
+                </span>
               )}
             </div>
-          )}
 
-          {/* Social OAuth Providers */}
-          <div className="flex flex-col gap-2 pt-2 border-t border-inherit">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleOAuthSignIn("google")}
-                className={`flex items-center justify-center gap-2 border transition-all py-2 text-[10px] uppercase font-bold tracking-wider cursor-pointer rounded-none text-center ${
-                  theme === "light"
-                    ? "border-black/15 text-black/70 hover:text-black hover:border-black/40 bg-white"
-                    : "border-white/15 text-white/70 hover:text-white hover:border-white/40 bg-black"
-                }`}
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                Google
-              </button>
-
-              <button
-                onClick={() => handleOAuthSignIn("github")}
-                className={`flex items-center justify-center gap-2 border transition-all py-2 text-[10px] uppercase font-bold tracking-wider cursor-pointer rounded-none text-center ${
-                  theme === "light"
-                    ? "border-black/15 text-black/70 hover:text-black hover:border-black/40 bg-white"
-                    : "border-white/15 text-white/70 hover:text-white hover:border-white/40 bg-black"
-                }`}
-              >
-                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                  <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-                </svg>
-                GitHub
-              </button>
-            </div>
-
-            {/* Guest Sandbox Mode Button */}
             <button
+              type="submit"
+              className={`border py-2.5 text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer rounded-none mt-2 ${
+                theme === "light"
+                  ? "border-black/30 text-black bg-white hover:bg-neutral-100"
+                  : "border-white/30 text-white bg-black hover:bg-neutral-900"
+              }`}
+            >
+              {authMode === "login" ? "[ Sign In ]" : "[ Create Account ]"}
+            </button>
+          </form>
+
+          {/* Social OAuth / Alternative Auth Providers */}
+          <div className="flex flex-col gap-2 pt-2 border-t border-inherit">
+            <button
+              type="button"
+              onClick={() => handleOAuthSignIn("google")}
+              className={`flex items-center justify-center gap-2 border transition-all py-2 text-[10px] uppercase font-bold tracking-wider cursor-pointer rounded-none text-center ${
+                theme === "light"
+                  ? "border-black/15 text-black/80 hover:text-black hover:border-black/40 bg-white"
+                  : "border-white/15 text-white/80 hover:text-white hover:border-white/40 bg-black"
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+              Continue with Google
+            </button>
+
+            <button
+              type="button"
               onClick={handleGuestSignIn}
-              className={`border py-2 text-[9.5px] uppercase font-mono tracking-widest transition-all cursor-pointer rounded-none text-center ${
+              className={`border py-2 text-[9.5px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer rounded-none text-center ${
                 theme === "light"
                   ? "border-black/20 text-black bg-neutral-100 hover:bg-neutral-200"
                   : "border-white/20 text-white bg-neutral-900 hover:bg-neutral-800"
@@ -836,21 +851,6 @@ export default function Home() {
               [ Guest Access ]
             </button>
           </div>
-
-          {/* Toggle Form Auth Mode */}
-          <button
-            onClick={() => {
-              setAuthMode(authMode === "email" ? "phone" : "email");
-              setAuthError(null);
-              setAuthSuccess(null);
-              setOtpSent(false);
-            }}
-            className={`text-[9px] transition-colors cursor-pointer text-left uppercase font-mono tracking-wider pt-2 ${
-              theme === "light" ? "text-black/60 hover:text-black" : "text-white/50 hover:text-white"
-            }`}
-          >
-            {authMode === "email" ? "> Use Mobile Number Instead" : "> Use Email/Password Instead"}
-          </button>
         </div>
       </main>
     );
@@ -869,20 +869,18 @@ export default function Home() {
       <nav className={`relative h-14 min-h-[56px] border-b flex items-center px-6 z-50 shrink-0 transition-all duration-700 ${
         theme === "light" ? "border-black/10 bg-white" : "border-white/10 bg-black"
       } ${dashboardVisible ? "translate-y-0 opacity-100" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
-        {/* Left: Home Trigger */}
-        <div
-          className={`flex items-center cursor-pointer group rounded-full px-4 py-1.5 transition-all border ${
-            theme === "light"
-              ? "bg-white border-gray-900 text-black hover:bg-neutral-100"
-              : "bg-neutral-950 border-neutral-800 hover:border-neutral-700 text-white"
-          }`}
-          onClick={() => handleNavClick("idle")}
-        >
-          <span className={`font-mono text-[10px] font-bold tracking-[0.2em] uppercase ${
-            theme === "light" ? "text-black" : "text-white"
-          }`}>
-            [ HOME ]
-          </span>
+        {/* Left: NetraAI Branding + Font Size Controller */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => handleNavClick("idle")}
+            className={`font-brand uppercase tracking-widest font-bold text-xs cursor-pointer transition-opacity hover:opacity-80 ${
+              theme === "light" ? "text-neutral-900" : "text-white"
+            }`}
+          >
+            NetraAI
+          </button>
+
+          <FontSizeController theme={theme} />
         </div>
 
         <div className="flex-1" />
@@ -931,14 +929,16 @@ export default function Home() {
           />
 
           <div className="flex items-center gap-2">
-            <span className={`font-mono text-[9px] uppercase tracking-widest ${
-              theme === "light" ? "text-neutral-900 font-semibold" : "text-neutral-400"
-            }`}>
-              {user.email || user.phone || "GUEST"}
+            <span className={`font-mono text-[8px] max-w-[85px] truncate uppercase tracking-wider opacity-75 ${
+              theme === "light" ? "text-neutral-900 font-semibold" : "text-neutral-300"
+            }`} title={user.email || user.phone || "Guest"}>
+              {user.isGuest || user.email === "Guest" || user.email?.toLowerCase().includes("guest")
+                ? "Guest"
+                : (user.email || user.phone || "Guest")}
             </span>
             <button
               onClick={handleSignOut}
-              className={`font-mono text-[9.5px] tracking-[0.15em] uppercase border px-4 py-2 transition-all cursor-pointer rounded-none ${
+              className={`font-mono text-[9.5px] tracking-[0.15em] uppercase border px-3.5 py-1.5 transition-all cursor-pointer rounded-none ${
                 theme === "light"
                   ? "text-black hover:text-black/80 border-neutral-400 hover:border-neutral-600 bg-white"
                   : "text-white/40 hover:text-white border-white/10 hover:border-white/30"
@@ -994,7 +994,7 @@ export default function Home() {
               >
                 <SessionPanel
                   theme={theme}
-                  userEmail={user.email || user.phone || "GUEST"}
+                  userEmail={user.isGuest || user.email === "Guest" || user.email?.toLowerCase().includes("guest") ? "Guest" : (user.email || user.phone || "Guest")}
                   history={diagnosticHistory}
                   onSelectHistoryItem={handleSelectHistoryItem}
                 />
@@ -1168,7 +1168,7 @@ export default function Home() {
                           </div>
                           <div className="flex justify-between">
                             <span className={theme === "light" ? "text-neutral-500" : "text-neutral-400"}>Peak Kappa (QWK):</span>
-                            <span className="font-semibold text-[#E30022]">{results.peak_qwk.toFixed(3)}</span>
+                            <span className="font-semibold text-emerald-500">{results.peak_qwk.toFixed(3)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className={theme === "light" ? "text-neutral-500" : "text-neutral-400"}>Inference Latency:</span>
@@ -1237,32 +1237,42 @@ export default function Home() {
                           Session Diagnostic Ledger
                         </p>
                       </div>
-                      <span className="text-emerald-500 text-xs font-bold">[ VERIFIED ]</span>
                     </div>
 
+                    {/* Top Summary Metrics Cards - Powered strictly by explicitly saved reports */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-[9.5px]">
                       <div className="border p-3 flex flex-col gap-1 border-inherit">
                         <span className={theme === "light" ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Total Scans:</span>
-                        <span className="text-base font-bold">{diagnosticHistory.length}</span>
+                        <span className="text-base font-bold">{savedReports.length}</span>
                       </div>
                       <div className="border p-3 flex flex-col gap-1 border-inherit">
                         <span className={theme === "light" ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Latency:</span>
-                        <span className="text-base font-bold text-emerald-500">~42ms</span>
+                        <span className="text-base font-bold text-emerald-500">
+                          {savedReports.length > 0 ? "~42ms" : "--"}
+                        </span>
                       </div>
                       <div className="border p-3 flex flex-col gap-1 border-inherit">
                         <span className={theme === "light" ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Validation MSE:</span>
-                        <span className="text-base font-bold">0.142</span>
+                        <span className="text-base font-bold">
+                          {savedReports.length > 0
+                            ? (savedReports.reduce((acc, curr) => acc + (curr.val_mse_loss ?? 0.142), 0) / savedReports.length).toFixed(3)
+                            : "--"}
+                        </span>
                       </div>
                       <div className="border p-3 flex flex-col gap-1 border-inherit">
                         <span className={theme === "light" ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Kappa Score:</span>
-                        <span className="text-base font-bold text-[#E30022]">0.924 QWK</span>
+                        <span className="text-base font-bold text-emerald-500">
+                          {savedReports.length > 0
+                            ? `${(savedReports.reduce((acc, curr) => acc + (curr.peak_qwk ?? 0.924), 0) / savedReports.length).toFixed(3)} QWK`
+                            : "--"}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Full History Table in Report View */}
+                    {/* Saved Reports Ledger Table in Report View */}
                     <div className="flex flex-col gap-2 pt-4">
                       <span className="text-[10px] uppercase font-bold tracking-wider">
-                        Detailed Scan History
+                        Saved Diagnostic Reports
                       </span>
                       <div className="border border-inherit overflow-x-auto">
                         <table className="w-full text-left text-[9px]">
@@ -1276,17 +1286,33 @@ export default function Home() {
                             </tr>
                           </thead>
                           <tbody>
-                            {diagnosticHistory.length === 0 ? (
+                            {savedReports.length === 0 ? (
                               <tr>
                                 <td colSpan={5} className="p-4 text-center opacity-50">
-                                  NO DIAGNOSTIC RUNS RECORDED
+                                  NO SAVED DIAGNOSTIC REPORTS RECORDED
                                 </td>
                               </tr>
                             ) : (
-                              diagnosticHistory.map((item) => (
+                              savedReports.map((item) => (
                                 <tr key={item.id} className="border-b border-inherit last:border-0 hover:bg-neutral-500/5">
                                   <td className="p-2.5">{item.timestamp}</td>
-                                  <td className="p-2.5 font-bold">Stage {item.stage}</td>
+                                  <td className="p-2.5">
+                                    <span className={`px-1.5 py-0.5 border text-[8px] font-bold uppercase tracking-wider ${
+                                      theme === "light"
+                                        ? (item.stage === 0 ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
+                                           item.stage === 1 ? "bg-yellow-100 text-yellow-800 border-yellow-300" :
+                                           item.stage === 2 ? "bg-amber-100 text-amber-800 border-amber-300" :
+                                           item.stage === 3 ? "bg-orange-100 text-orange-800 border-orange-300" :
+                                           "bg-red-100 text-red-800 border-red-300")
+                                        : (item.stage === 0 ? "bg-emerald-950/40 text-emerald-400 border-emerald-600/40" :
+                                           item.stage === 1 ? "bg-yellow-950/40 text-yellow-400 border-yellow-600/40" :
+                                           item.stage === 2 ? "bg-amber-950/40 text-amber-400 border-amber-600/40" :
+                                           item.stage === 3 ? "bg-orange-950/40 text-orange-400 border-orange-600/40" :
+                                           "bg-red-950/40 text-red-400 border-red-600/40")
+                                    }`}>
+                                      Stage {item.stage}
+                                    </span>
+                                  </td>
                                   <td className="p-2.5">{item.stageLabel}</td>
                                   <td className="p-2.5 font-medium">{(item.confidence * 100).toFixed(0)}%</td>
                                   <td className="p-2.5 text-right">
@@ -1304,6 +1330,35 @@ export default function Home() {
                         </table>
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Full Screen AI Summary View (Coming Soon) ── */}
+              {activeView === "ai_summary" && (
+                <div className="min-h-full flex flex-col justify-center items-center p-8 max-w-md mx-auto font-mono pointer-events-auto text-center">
+                  <div className={`border p-8 flex flex-col items-center gap-6 w-full backdrop-blur-md ${
+                    theme === "light" ? "bg-white/90 border-neutral-300 shadow-sm" : "bg-black/70 border-neutral-800 shadow-xl"
+                  }`}>
+                    <div className="flex flex-col items-center gap-2">
+                      <h2 className="text-base font-bold tracking-widest uppercase">
+                        AI SUMMARY
+                      </h2>
+                      <p className={`text-[10px] uppercase tracking-wider ${theme === "light" ? "text-neutral-500" : "text-neutral-400"}`}>
+                        Coming Soon in Development
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleNavClick("grader")}
+                      className={`border px-5 py-2 text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer ${
+                        theme === "light"
+                          ? "border-neutral-900 bg-neutral-900 text-white hover:bg-black"
+                          : "border-white bg-white text-black hover:bg-neutral-200"
+                      }`}
+                    >
+                      [ Return to Grader ]
+                    </button>
                   </div>
                 </div>
               )}
