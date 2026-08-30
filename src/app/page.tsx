@@ -927,7 +927,7 @@ export default function Home() {
           <LocationGateway
             inline
             theme={theme}
-            onLocationSelect={(hub) => setActiveHub(hub)}
+            onLocationSelect={setActiveHub}
           />
 
           <div className="flex items-center gap-2">

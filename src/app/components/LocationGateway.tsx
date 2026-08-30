@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { MapPin, Building, Check, X } from "lucide-react";
 
@@ -58,24 +58,25 @@ export default function LocationGateway({ onLocationSelect, inline = false, them
   const [resolvedResult, setResolvedResult] = useState<LocationHub | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const onLocationSelectRef = useRef(onLocationSelect);
+  useEffect(() => {
+    onLocationSelectRef.current = onLocationSelect;
+  }, [onLocationSelect]);
+
   useEffect(() => {
     setMounted(true);
-    return () => setMounted(false);
-  }, []);
-
-  // Client-side hydration of active hub
-  useEffect(() => {
+    // Client-side hydration of active hub
     const stored = localStorage.getItem("medical_active_hub");
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as LocationHub;
         setActiveHub(parsed);
-        if (onLocationSelect) onLocationSelect(parsed);
+        onLocationSelectRef.current?.(parsed);
       } catch (e) {
         console.error("Failed to parse stored hub", e);
       }
     }
-  }, [onLocationSelect]);
+  }, []);
 
   // Select and save a hub
   const selectHub = (hub: LocationHub) => {

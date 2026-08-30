@@ -12,6 +12,7 @@ Run:
 """
 
 import io
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -49,7 +50,10 @@ def get_device() -> torch.device:
 
 DEVICE = get_device()
 _model = build_model(DEVICE)
-_model.load_state_dict(torch.load("best_model.pt", map_location=DEVICE))
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "best_model.pt")
+_model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 _model.eval()
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -81,7 +85,7 @@ class DiagnosisResponse(BaseModel):
     clamped_score: float
     integer_stage: int
     stage_label: str
-    val_mse_loss: float | None
+    val_mse_loss: Optional[float]
     peak_qwk: float
     gradcam_base64: str
 
