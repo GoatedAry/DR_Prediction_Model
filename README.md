@@ -53,7 +53,31 @@ curl -X POST http://localhost:8000/assess \
 
 ---
 
-## 3. Full-Stack Web Interface (Next.js + WebGL)
+## 3. SIH MedTech ML Service Layer
+
+Standalone ML inference layer for the SIH MedTech backend:
+- Diabetic Retinopathy (DR) image inference (`retinopathy/`)
+- Diabetes risk prediction interface (`diabetes/`)
+
+Architecture:
+```text
+Frontend (Next.js)
+   |
+   v
+FastAPI Backend
+   |
+   +----------------------+
+   |                      |
+   v                      v
+DiabetesPredictor   RetinopathyPredictor
+   |                      |
+   v                      v
+Diabetes Model       DR Model
+```
+
+---
+
+## 4. Full-Stack Web Interface (Next.js + WebGL)
 
 The user-facing portal provides biometric particle visualization, interactive fundus scan intake, and full-screen diagnostic staging.
 
