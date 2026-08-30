@@ -17,7 +17,7 @@ interface DiagnosticState {
   clamped_score: number;
   integer_stage: number;
   stage_label: string;
-  val_mse_loss: number;
+  val_mse_loss: number | null;
   peak_qwk: number;
 }
 
@@ -1160,7 +1160,11 @@ export default function Home() {
                         }`}>
                           <div className="flex justify-between">
                             <span className={theme === "light" ? "text-neutral-500" : "text-neutral-400"}>Validation MSE Loss:</span>
-                            <span className="font-semibold">{results.val_mse_loss.toFixed(4)}</span>
+                            <span className="font-semibold">
+                              {results.val_mse_loss !== null && results.val_mse_loss !== undefined
+                                ? results.val_mse_loss.toFixed(4)
+                                : "N/A"}
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className={theme === "light" ? "text-neutral-500" : "text-neutral-400"}>Peak Kappa (QWK):</span>
