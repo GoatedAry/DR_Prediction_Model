@@ -1,0 +1,109 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Vercel Deployment Ignore Rules
+# Excludes heavy ML artifacts, Python backends, datasets, and virtual environments
+# to keep the Next.js serverless build well under 50MB.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Python Virtual Environments & Packages
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+develop-eggs/
+eggs/
+.eggs/
+wheels/
+*.egg
+
+# Standalone Python Backends, Services & Python Files
+api/
+backend/
+Mlservicelayer/
+Detection_model/
+models/
+modeling/
+preprocessing/
+retinopathy/
+diabetes/
+features/
+experiments/
+huh/
+llm/
+config/
+artifacts/
+results/
+tests/
+*.py
+requirements.txt
+
+# Machine Learning Weights & Checkpoints
+*.pth
+*.pt
+*.h5
+*.hdf5
+*.onnx
+*.bin
+*.pkl
+*.pickle
+*.joblib
+*.ckpt
+*.safetensors
+*.tflite
+*.weights
+*.pb
+weights/
+checkpoints/
+
+# Datasets, Raw Imagery, Archives & Data Files
+datasets/
+data/
+raw_data/
+test_images/
+train_images/
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.dcm
+*.npy
+*.npz
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.jsonl
+
+# Jupyter Notebooks & Caches
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs & Temporary Scratch Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp/
+*.tmp
+scratch/
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

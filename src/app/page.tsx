@@ -98,6 +98,7 @@ export default function Home() {
   const [dismissTarget, setDismissTarget] = useState(1.0);
   const [showEye, setShowEye] = useState(false);
   const [contentReady, setContentReady] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
   // Morph Animation Pipeline State
   const [morphState, setMorphState] = useState<MorphPhase>("eye");
@@ -506,13 +507,34 @@ export default function Home() {
     });
   };
 
+  const handleDeleteSavedReport = (id: string) => {
+    setSavedReports((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      if (typeof window !== "undefined") {
+        if (user?.isGuest) {
+          sessionStorage.setItem("netra_saved_reports", JSON.stringify(updated));
+        } else if (user) {
+          const userKey = `dr_saved_reports_${user.id || user.email}`;
+          localStorage.setItem(userKey, JSON.stringify(updated));
+        }
+      }
+      return updated;
+    });
+  };
+
   // ── Navigation handler ──────────────────────────────────────────────────────
   const handleNavClick = (view: ActiveView) => {
-    if (view === activeView) return;
+    setShowInfo(false);
+    if (view === activeView) {
+      if (view === "idle") {
+        setDismissTarget(0);
+      }
+      return;
+    }
 
     if (view === "idle") {
       setContentReady(false);
-      setDismissTarget(0);
+      setDismissTarget(0); // Eye undispersing / reforming animation
       setActiveView("idle");
       setMorphState("eye");
       setResults(null);
@@ -523,9 +545,30 @@ export default function Home() {
     } else {
       const wasIdle = activeView === "idle";
       setActiveView(view);
-      setDismissTarget(1);
+      setDismissTarget(1); // Eye dispersing animation
       // If already transitioned out of idle, content is ready immediately
       setContentReady(!wasIdle);
+    }
+  };
+
+  const handleToggleSIH = () => {
+    setShowInfo((prev) => {
+      const next = !prev;
+      if (next) {
+        setDismissTarget(1); // Disperse eye when opening SIH info
+      } else {
+        if (activeView === "idle") {
+          setDismissTarget(0); // Undisperse/reform eye when closing SIH info back to idle
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleCloseSIH = () => {
+    setShowInfo(false);
+    if (activeView === "idle") {
+      setDismissTarget(0); // Undisperse/reform eye back to idle view
     }
   };
 
@@ -869,10 +912,13 @@ export default function Home() {
       <nav className={`relative h-14 min-h-[56px] border-b flex items-center px-6 z-50 shrink-0 transition-all duration-700 ${
         theme === "light" ? "border-black/10 bg-white" : "border-white/10 bg-black"
       } ${dashboardVisible ? "translate-y-0 opacity-100" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
-        {/* Left: NetraAI Branding + Font Size Controller */}
-        <div className="flex items-center gap-3">
+        {/* Left: NetraAI Branding + Font Size Controller + SIH Button */}
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={() => handleNavClick("idle")}
+            onClick={() => {
+              handleCloseSIH();
+              handleNavClick("idle");
+            }}
             className={`font-brand uppercase tracking-widest font-bold text-xs cursor-pointer transition-opacity hover:opacity-80 ${
               theme === "light" ? "text-neutral-900" : "text-white"
             }`}
@@ -881,6 +927,20 @@ export default function Home() {
           </button>
 
           <FontSizeController theme={theme} />
+
+          <button
+            onClick={handleToggleSIH}
+            className={`font-mono text-[9.5px] px-2.5 py-0.5 border transition-all cursor-pointer rounded-none tracking-wider font-bold ${
+              showInfo
+                ? (theme === "light" ? "bg-black text-white border-black" : "bg-white text-black border-white")
+                : (theme === "light"
+                    ? "border-neutral-300 hover:border-black text-neutral-800 hover:text-black bg-white"
+                    : "border-neutral-800 hover:border-neutral-500 text-neutral-400 hover:text-white bg-neutral-950")
+            }`}
+            title="Toggle SIH26038 Information"
+          >
+            [ SIH ]
+          </button>
         </div>
 
         <div className="flex-1" />
@@ -966,12 +1026,12 @@ export default function Home() {
       {/* ══════════════════════════════════════════════════════════════════════
           Content Area
           ══════════════════════════════════════════════════════════════════════ */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* Full-width 3D WebGL Canvas Layer */}
-        <div className="absolute inset-0 z-0">
+      <div className="flex-1 relative overflow-hidden flex flex-col">
+        {/* Full-width 3D WebGL Canvas Layer (Persistently mounted for eye disperse/reform animations) */}
+        <div className="absolute inset-0 z-0 pointer-events-none">
           <Scene
             hoverStrength={hoverStrength}
-            dismissTarget={loading ? 0.0 : dismissTarget}
+            dismissTarget={loading || showInfo ? 1.0 : dismissTarget}
             showEye={showEye}
             theme={theme}
             morphState={morphState}
@@ -982,7 +1042,7 @@ export default function Home() {
 
         {/* ── Idle State (Central 3D Eye, [ UPLOAD FUNDUS SCAN ] button, & Left Session History Panel) ── */}
         <AnimatePresence>
-          {dashboardVisible && activeView === "idle" && (
+          {dashboardVisible && activeView === "idle" && !showInfo && (
             <div className="absolute inset-0 z-10 pointer-events-none p-6 flex flex-col justify-between">
               {/* Left Sidebar: Constrained to 50% height, tucked top-left */}
               <motion.div
@@ -1027,7 +1087,7 @@ export default function Home() {
 
         {/* ── Full Screen Views: Full Screen Drop Page & Full Screen Diagnostic Result View ── */}
         <AnimatePresence>
-          {dashboardVisible && contentReady && activeView !== "idle" && (
+          {dashboardVisible && contentReady && activeView !== "idle" && !showInfo && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1110,7 +1170,7 @@ export default function Home() {
                     <div className="w-full flex flex-col lg:flex-row gap-8 items-start py-4 pointer-events-auto">
                       {/* Left Side: Uploaded Scan Preview */}
                       <div className="flex-1 w-full flex flex-col gap-4">
-                        <h3 className={`text-[10px] tracking-widest uppercase ${theme === "light" ? "text-black/40" : "text-white/40"}`}>
+                        <h3 className={`text-xs tracking-widest uppercase font-bold ${theme === "light" ? "text-black/70" : "text-white/70"}`}>
                           Uploaded Scan Preview
                         </h3>
                         {previewUrl && (
@@ -1233,18 +1293,17 @@ export default function Home() {
                         <h2 className="text-sm font-bold tracking-widest uppercase">
                           REPORT SUMMARY
                         </h2>
-                        <p className={`text-[9px] uppercase mt-0.5 ${theme === "light" ? "text-neutral-500" : "text-neutral-400"}`}>
-                          Session Diagnostic Ledger
+                        <p className={`text-[10px] uppercase tracking-wider ${theme === "light" ? "text-neutral-500" : "text-neutral-400"}`}>
+                          Validated Patient Case History Ledger
                         </p>
                       </div>
+                      <span className="text-[10px] border px-2 py-1 uppercase tracking-widest border-inherit">
+                        {savedReports.length} SAVED SCANS
+                      </span>
                     </div>
 
-                    {/* Top Summary Metrics Cards - Powered strictly by explicitly saved reports */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-[9.5px]">
-                      <div className="border p-3 flex flex-col gap-1 border-inherit">
-                        <span className={theme === "light" ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Total Scans:</span>
-                        <span className="text-base font-bold">{savedReports.length}</span>
-                      </div>
+                    {/* Report Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="border p-3 flex flex-col gap-1 border-inherit">
                         <span className={theme === "light" ? "text-neutral-500 uppercase" : "text-neutral-400 uppercase"}>Latency:</span>
                         <span className="text-base font-bold text-emerald-500">
@@ -1317,10 +1376,10 @@ export default function Home() {
                                   <td className="p-2.5 font-medium">{(item.confidence * 100).toFixed(0)}%</td>
                                   <td className="p-2.5 text-right">
                                     <button
-                                      onClick={() => handleSelectHistoryItem(item)}
-                                      className="underline uppercase cursor-pointer hover:opacity-75"
+                                      onClick={() => handleDeleteSavedReport(item.id)}
+                                      className="text-red-500 hover:text-red-400 text-[8px] uppercase tracking-wider cursor-pointer"
                                     >
-                                      View Scan
+                                      [ Delete ]
                                     </button>
                                   </td>
                                 </tr>
@@ -1330,22 +1389,40 @@ export default function Home() {
                         </table>
                       </div>
                     </div>
+
+                    <button
+                      onClick={() => handleNavClick("grader")}
+                      className={`border px-5 py-2 text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer ${
+                        theme === "light"
+                          ? "border-neutral-900 bg-neutral-900 text-white hover:bg-black"
+                          : "border-white bg-white text-black hover:bg-neutral-200"
+                      }`}
+                    >
+                      [ Return to Grader ]
+                    </button>
                   </div>
                 </div>
               )}
 
-              {/* ── Full Screen AI Summary View (Coming Soon) ── */}
+              {/* ── Full Screen AI Summary View ── */}
               {activeView === "ai_summary" && (
-                <div className="min-h-full flex flex-col justify-center items-center p-8 max-w-md mx-auto font-mono pointer-events-auto text-center">
-                  <div className={`border p-8 flex flex-col items-center gap-6 w-full backdrop-blur-md ${
-                    theme === "light" ? "bg-white/90 border-neutral-300 shadow-sm" : "bg-black/70 border-neutral-800 shadow-xl"
-                  }`}>
-                    <div className="flex flex-col items-center gap-2">
-                      <h2 className="text-base font-bold tracking-widest uppercase">
-                        AI SUMMARY
+                <div className="min-h-full flex flex-col justify-center p-8 max-w-4xl mx-auto font-mono pointer-events-auto">
+                  <div className="border p-8 flex flex-col gap-6">
+                    <div className="border-b pb-4 border-inherit">
+                      <h2 className="text-sm font-bold tracking-widest uppercase">
+                        EXECUTIVE AI SUMMARY
                       </h2>
-                      <p className={`text-[10px] uppercase tracking-wider ${theme === "light" ? "text-neutral-500" : "text-neutral-400"}`}>
-                        Coming Soon in Development
+                      <p className={`text-[10px] uppercase tracking-wider mt-1 ${theme === "light" ? "text-neutral-500" : "text-neutral-400"}`}>
+                        Deep Learning Architecture & Deployment Metrics
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-4 text-xs leading-relaxed">
+                      <p>
+                        The NetraAI platform executes clinical-grade automated Diabetic Retinopathy grading using a modified ResNet-50 backbone fine-tuned for continuous ordinal regression.
+                      </p>
+                      <p>
+                        Input retinal fundus scans undergo automated ROI isolation, green-channel filtering, and CLAHE normalization before tensor inference.
                       </p>
                     </div>
 
@@ -1368,7 +1445,7 @@ export default function Home() {
 
         {/* ── Minimalist Bottom Metric Strip ── */}
         <AnimatePresence>
-          {dashboardVisible && !loading && (
+          {dashboardVisible && !loading && !showInfo && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1384,6 +1461,165 @@ export default function Home() {
               <span className="whitespace-nowrap pl-4 uppercase">
                 NODE: {activeHub ? activeHub.pin : "CONNECTED (821115)"}
               </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── SIH26038 Technical Overlay (Smooth Fade-In with Background 3D Eye Dispersing) ── */}
+        <AnimatePresence>
+          {showInfo && (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 15 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              className="absolute inset-0 z-30 overflow-y-auto bg-black/92 backdrop-blur-xl text-white p-6 md:p-12"
+            >
+              <div className="max-w-4xl mx-auto flex flex-col text-left pb-24">
+                {/* 1. Header: Centered Title with Symmetrical [ CLOSE ] in Top Right */}
+                <div className="relative flex items-center justify-center border-b border-zinc-800 pb-6 mb-8">
+                  <div className="text-center">
+                    <span className="text-[10px] font-mono tracking-[0.3em] text-zinc-500 uppercase block mb-1">
+                      PROJECT SPECIFICATION
+                    </span>
+                    <h1 className="text-3xl md:text-4xl font-light uppercase text-white tracking-[0.25em]">
+                      SIH26038
+                    </h1>
+                  </div>
+                  <button
+                    onClick={handleCloseSIH}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 px-4 py-1.5 border border-zinc-700 text-xs uppercase font-mono tracking-widest text-zinc-300 hover:text-white hover:border-zinc-500 bg-zinc-950 transition-colors cursor-pointer"
+                  >
+                    [ CLOSE ]
+                  </button>
+                </div>
+
+                {/* 2. Section 1: The Problem */}
+                <div className="flex flex-col gap-2.5">
+                  <h2 className="text-xs font-mono tracking-widest text-zinc-400 uppercase">
+                    THE PROBLEM
+                  </h2>
+                  <p className="text-lg md:text-xl font-light text-zinc-200 leading-relaxed">
+                    Diabetic Retinopathy (DR) is a leading cause of preventable blindness worldwide. While early detection is critical to halt irreversible retinal damage, rural healthcare ecosystems face a severe shortage of specialized ophthalmologists, leaving millions without timely access to diagnostic screening.
+                  </p>
+                </div>
+
+                <div className="border-t border-zinc-800 my-8" />
+
+                {/* 3. Section 2: The Solution */}
+                <div className="flex flex-col gap-2.5">
+                  <h2 className="text-xs font-mono tracking-widest text-zinc-400 uppercase">
+                    THE SOLUTION
+                  </h2>
+                  <p className="text-lg md:text-xl font-light text-zinc-200 leading-relaxed">
+                    NetraAI provides an instantaneous, low-cost, clinical-grade automated triage platform engineered for primary health centers. By delivering automated DR staging from fundus images on-site, the platform bridges cost and availability gaps to prioritize high-risk patients before irreversible vision loss occurs.
+                  </p>
+                </div>
+
+                <div className="border-t border-zinc-800 my-8" />
+
+                {/* 4. Section 3: System Pipeline & Data Flow */}
+                <div className="flex flex-col gap-4">
+                  <h2 className="text-xs font-mono tracking-widest text-zinc-400 uppercase">
+                    SYSTEM PIPELINE & DATA FLOW
+                  </h2>
+
+                  {/* Preprocessing Pipeline */}
+                  <div className="border border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-4">
+                    <span className="text-[11px] font-mono text-zinc-400 font-bold uppercase tracking-wider">
+                      STAGE A: UNIFORM PREPROCESSING PIPELINE
+                    </span>
+                    <div className="overflow-x-auto glow-scrollbar pb-3">
+                      <div className="flex items-center gap-2 min-w-max text-xs font-mono py-1">
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Raw Fundus Image Input
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Background Masking (ROI)
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Green Channel Isolation (540nm)
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Noise Reduction (Median Filtering)
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          CLAHE Contrast Enhancement
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Standardization (224×224 3-Ch)
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-white px-4 py-2 bg-zinc-900 text-white font-bold shadow-sm">
+                          Preprocessed Fundus Output
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Deep Learning Architecture */}
+                  <div className="border border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-4">
+                    <span className="text-[11px] font-mono text-zinc-400 font-bold uppercase tracking-wider">
+                      STAGE B: ORDINAL REGRESSION & RESNET-50 BACKBONE
+                    </span>
+                    <div className="overflow-x-auto glow-scrollbar pb-3">
+                      <div className="flex items-center gap-2 min-w-max text-xs font-mono py-1">
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Preprocessed Tensor [224×224×3]
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-white px-4 py-2 bg-zinc-900 text-white font-bold shadow-sm">
+                          ResNet-50 Feature Extractor
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Dropout Layer (p=0.5)
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Continuous Output Regressor (MSE)
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-zinc-700 px-3.5 py-2 bg-black text-white">
+                          Clamping & Rounding [0, 4]
+                        </div>
+                        <span className="text-zinc-600 font-mono">→</span>
+                        <div className="border border-white px-4 py-2 bg-zinc-900 text-white font-bold shadow-sm">
+                          Clinical DR Severity Stage (0–4)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-zinc-800 my-8" />
+
+                {/* 5. Section 4: Tech Stack & Benchmark Validation */}
+                <div className="flex flex-col gap-3">
+                  <h2 className="text-xs font-mono tracking-widest text-zinc-400 uppercase">
+                    TECH STACK & BENCHMARK VALIDATION
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border border-zinc-800 bg-zinc-950 p-5 text-xs font-mono">
+                    <div className="flex flex-col gap-1.5 border-b md:border-b-0 md:border-r border-zinc-800 pb-3 md:pb-0 md:pr-4">
+                      <span className="text-zinc-500 uppercase tracking-widest text-[10px]">Frontend</span>
+                      <span className="text-white text-sm">Next.js 16 / TypeScript / Tailwind</span>
+                    </div>
+                    <div className="flex flex-col gap-1.5 border-b md:border-b-0 md:border-r border-zinc-800 pb-3 md:pb-0 md:pr-4">
+                      <span className="text-zinc-500 uppercase tracking-widest text-[10px]">Backend Engine</span>
+                      <span className="text-white text-sm">Python FastAPI / PyTorch / OpenCV</span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-zinc-500 uppercase tracking-widest text-[10px]">Validation Metric</span>
+                      <span className="text-white text-sm font-bold">Peak QWK Score: 0.8992 (APTOS Benchmark)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
