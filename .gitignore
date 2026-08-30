@@ -1,23 +1,67 @@
-# Virtual environment
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Testing & Coverage
+/coverage
+
+# Next.js & Frontend Build
+/.next/
+/out/
+/build
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Python & Virtual Environment
 venv/
-
-# Python cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Dataset files (large, pull via Kaggle API instead of committing)
+# Datasets & Large/Local Files
 test_images/
-
-# Model checkpoint: included in repo (fits under GitHub's 100MB limit)
-# best_model.pt
 train.csv
-
-# Kaggle credentials — never commit these
 kaggle.json
 access_token
 
-# OS/editor cruft
+# Environment & Secret Files
+.env*
+!.env.example
+
+# Logs & Debugging
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS & Editor Cruft
 .DS_Store
 Thumbs.db
+*.pem
 .vscode/
 .idea/
