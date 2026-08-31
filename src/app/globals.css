@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --font-scale: 1.1; /* Default +10% bumped baseline font scale */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-brand: var(--font-montserrat);
+}
+
+html {
+  font-size: calc(16px * var(--font-scale, 1.1));
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* Custom range input */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+/* 5-Second Pulsing Glowing Scrollbar for Data Graphs */
+@keyframes scrollbarGlow5s {
+  0%, 70%, 100% {
+    background-color: rgba(255, 255, 255, 0.2);
+    box-shadow: none;
+  }
+  85% {
+    background-color: #ffffff;
+    box-shadow: 0 0 14px rgba(255, 255, 255, 0.9), 0 0 4px #ffffff;
+  }
+}
+
+.glow-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) rgba(255, 255, 255, 0.04);
+}
+
+.glow-scrollbar::-webkit-scrollbar {
+  height: 5px;
+}
+
+.glow-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+}
+
+.glow-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  animation: scrollbarGlow5s 5s infinite ease-in-out;
+}
+
+.glow-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #ffffff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+

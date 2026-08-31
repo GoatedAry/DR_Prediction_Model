@@ -1,0 +1,9 @@
+experiment,n_features,macro_auroc,macro_f1,balanced_accuracy,brier_score,ece,auroc_fold_std
+Exp0_majority_baseline,0,0.473,0.237,0.317,0.223,0.0,0.0
+Exp1_clinical_no_a1c,11,0.863,0.716,0.715,0.139,0.078,0.061
+Exp1b_clinical_with_a1c_SANITY,12,0.997,0.957,0.957,0.05,0.146,0.01
+Exp2_cgm_only,39,0.78,0.644,0.648,0.164,0.049,0.155
+Exp3_clinical_no_a1c_plus_cgm,50,0.816,0.672,0.668,0.156,0.073,0.116
+Exp4_plus_activity,60,0.817,0.672,0.668,0.155,0.052,0.116
+Exp5_full_multimodal,68,0.806,0.694,0.692,0.157,0.058,0.12
+Exp5b_full_multimodal_with_a1c_SANITY,69,0.978,0.912,0.912,0.062,0.156,0.041

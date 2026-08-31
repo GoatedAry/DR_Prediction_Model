@@ -1,27 +1,84 @@
-# Python & Virtual Environments
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Testing, Linting & Coverage
+/coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Next.js & Frontend Build
+/.next/
+/out/
+/build
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Python & Virtual Environment
 venv/
+.venv/
+env/
+ENV/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Dataset Folders & Archives
-train_images/
+# Jupyter
+.ipynb_checkpoints/
+
+# Datasets & Large/Local Files
 test_images/
-aptos2019-blindness-detection/
-aptos2019-blindness-detection.zip
-*.zip
-
-# Data & Credentials
 train.csv
 kaggle.json
 access_token
+CGMacros/
+data/
 
-# Model Checkpoints & Weights
-*.pth
-*.pt
+# Environment & Secret Files
+.env*
+!.env.example
+*.key
+
+# Logs & Debugging
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+tmp/
+*.tmp
 
 # OS & Editor Cruft
 .DS_Store
 Thumbs.db
+*.pem
+*.swp
 .vscode/
 .idea/
-local_requirments/
