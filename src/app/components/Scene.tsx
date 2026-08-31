@@ -135,6 +135,7 @@ interface BiometricEyeProps {
   showEye: boolean;
   theme: "dark" | "light";
   morphState?: MorphPhase;
+  scale?: number;
   onDismissComplete?: () => void;
   onReformComplete?: () => void;
 }
@@ -145,6 +146,7 @@ function BiometricEye({
   showEye,
   theme,
   morphState = "eye",
+  scale = 0.20,
   onDismissComplete,
   onReformComplete,
 }: BiometricEyeProps) {
@@ -161,6 +163,17 @@ function BiometricEye({
   const firedDismiss   = useRef(false);
   const firedReform    = useRef(true);
   const hasMoved       = useRef(false);
+  const globalPointer  = useRef({ x: 0, y: 0, active: false });
+
+  useEffect(() => {
+    const handlePointerMove = (e: MouseEvent) => {
+      globalPointer.current.x = (e.clientX / window.innerWidth) * 2 - 1;
+      globalPointer.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      globalPointer.current.active = true;
+    };
+    window.addEventListener("mousemove", handlePointerMove, { passive: true });
+    return () => window.removeEventListener("mousemove", handlePointerMove);
+  }, []);
 
   // Keep callback refs fresh to avoid stale closures in useFrame
   const onDismissRef = useRef(onDismissComplete);
@@ -273,12 +286,13 @@ function BiometricEye({
       redMatRef.current.size = sizeBoost * (1.0 + activeStrength.current * 0.15);
     }
 
-    // ── Mouse tracking coordinates ────────────────────────────────────────────
-    if (state.pointer.x !== 0 || state.pointer.y !== 0) {
-      hasMoved.current = true;
-    }
-    const px = hasMoved.current ? state.pointer.x : 0;
-    const py = hasMoved.current ? state.pointer.y - (56 / state.size.height) : 0;
+    // ── Mouse tracking coordinates (Window-wide global tracking) ───────────────
+    const px = globalPointer.current.active
+      ? globalPointer.current.x
+      : (state.pointer.x !== 0 ? state.pointer.x : 0);
+    const py = globalPointer.current.active
+      ? globalPointer.current.y
+      : (state.pointer.y !== 0 ? state.pointer.y : 0);
 
     // ── Group: cursor-tracking tilt + hover scale ─────────────────────────────
     const grp = groupRef.current;
@@ -310,7 +324,7 @@ function BiometricEye({
   });
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} scale={scale}>
       <points>
         <bufferGeometry>
           <bufferAttribute
@@ -323,7 +337,7 @@ function BiometricEye({
           ref={redMatRef}
           color={theme === "light" ? "#8B0000" : "#E30022"}
           blending={theme === "light" ? THREE.NormalBlending : THREE.AdditiveBlending}
-          size={0.017}
+          size={0.010}
           sizeAttenuation
           transparent
           opacity={0.0}
@@ -341,6 +355,7 @@ interface SceneProps {
   showEye?: boolean;
   theme?: "dark" | "light";
   morphState?: MorphPhase;
+  scale?: number;
   onDismissComplete?: () => void;
   onReformComplete?: () => void;
 }
@@ -352,6 +367,7 @@ export default function Scene(props: SceneProps) {
     showEye = true,
     theme = "dark",
     morphState = "eye",
+    scale = 0.20,
     onDismissComplete,
     onReformComplete,
   } = props;
@@ -359,7 +375,7 @@ export default function Scene(props: SceneProps) {
   return (
     <div className="w-full h-full">
       <Canvas
-        camera={{ position: [0, 0, 5], fov: 50 }}
+        camera={{ position: [0, 0, 5.6], fov: 48 }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
       >
         <BackgroundStars key={theme} theme={theme} />
@@ -370,6 +386,7 @@ export default function Scene(props: SceneProps) {
           showEye={showEye}
           theme={theme}
           morphState={morphState}
+          scale={scale}
           onDismissComplete={onDismissComplete}
           onReformComplete={onReformComplete}
         />
