@@ -1,23 +1,27 @@
-# Virtual environment
+# Python & Virtual Environments
 venv/
-
-# Python cache
 __pycache__/
 *.pyc
 
-# Dataset files (large, pull via Kaggle API instead of committing)
+# Dataset Folders & Archives
+train_images/
 test_images/
+aptos2019-blindness-detection/
+aptos2019-blindness-detection.zip
+*.zip
 
-# Model checkpoint: included in repo (fits under GitHub's 100MB limit)
-# best_model.pt
+# Data & Credentials
 train.csv
-
-# Kaggle credentials — never commit these
 kaggle.json
 access_token
 
-# OS/editor cruft
+# Model Checkpoints & Weights
+*.pth
+*.pt
+
+# OS & Editor Cruft
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+local_requirments/
