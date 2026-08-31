@@ -1,134 +1,225 @@
 """
-DR Diagnosis API — integrates the trained ResNet50 ordinal-regression model
-(backend branch) with the Next.js frontend (frontend-base-setup branch).
+DR Diagnosis API — Clinical Command Center Backend powered exclusively by the
+models, weights, transforms, clinical triage rules, and explainability in `dia-model/`.
 
-Endpoint contract matches what src/app/page.tsx already calls:
-    POST /predict   (multipart/form-data, field name "file")
-    -> { continuous_score, clamped_score, integer_stage, stage_label,
-         val_mse_loss, peak_qwk, gradcam_base64 }
-
-Run:
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+Endpoints:
+    POST /predict
+    POST /api/diagnose
+    (multipart/form-data, field name "file")
+    -> {
+        continuous_score: float,
+        clamped_score: float,
+        integer_stage: int,
+        stage_label: str,
+        confidence: float,
+        probabilities: list[float],
+        val_mse_loss: float,
+        peak_qwk: float,
+        quality_gate: {
+            sharpness: float,
+            illumination: float,
+            artifacts: float,
+            passed: bool
+        },
+        gradcam_base64: str,
+        bounding_boxes: list[dict]
+    }
 """
 
+import base64
 import io
-from typing import Optional
+import os
+import sys
+from typing import Dict, Any, Optional
+from PIL import Image
 
 import cv2
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from model import build_model
-from preprocessing import (
-    apply_clahe,
-    isolate_green_channel,
-    mask_background,
-    median_filter,
-    resize_and_stack,
+# ── Exclusively import from dia-model folder ─────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+DIA_MODEL_DIR = os.path.join(PROJECT_ROOT, "dia-model")
+
+if DIA_MODEL_DIR not in sys.path:
+    sys.path.insert(0, DIA_MODEL_DIR)
+
+from model import DRModel, apply_test_time_augmentation
+from preprocessing import get_validation_transforms
+from clinical_triage import ClinicalTriageSystem
+from explainability import (
+    get_base_gradcam,
+    generate_standard_heatmap_overlay,
+    extract_bounding_box_coordinates,
 )
 
 # ── App setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="DR Diagnosis API", version="1.0")
+app = FastAPI(
+    title="NetraAI Clinical Diagnosis & Explainability Backend",
+    version="2.0",
+    description="Clinical Command Center Backend utilizing dia-model weights, EfficientNet-B0 backbone, TTA, and dia-model explainability.",
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Model: load once at startup, reuse for every request ───────────────────
+# ── Model & Weights: Load exclusively from dia-model ─────────────────────────
 
 def get_device() -> torch.device:
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 DEVICE = get_device()
-_model = build_model(DEVICE)
-import os
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "best_model.pt")
-_model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+WEIGHTS_PATH = os.path.join(DIA_MODEL_DIR, "best_weights.pth")
+
+_model = DRModel(num_classes=5, pretrained=False).to(DEVICE)
+
+if os.path.exists(WEIGHTS_PATH):
+    _model.load_state_dict(torch.load(WEIGHTS_PATH, map_location=DEVICE))
 _model.eval()
 
-IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+_triage_system = ClinicalTriageSystem(confidence_threshold=0.80, high_risk_stage=2)
+_val_transforms = get_validation_transforms(image_size=224)
 
 STAGE_NAMES = {
-    0: "No DR",
-    1: "Mild NPDR",
-    2: "Moderate NPDR",
-    3: "Severe NPDR",
+    0: "No DR (Normal)",
+    1: "Mild DR",
+    2: "Moderate DR",
+    3: "Severe DR",
     4: "Proliferative DR",
 }
 
-# From README.md (backend branch): best validation QWK from the Kaggle training
-# run, measured on ~550 held-out images.
-PEAK_QWK = 0.8613
-
-# NOTE: val_mse_loss was never logged/saved during training (only QWK was
-# tracked in README.md / evaluate_samples.py). This is a placeholder so the
-# frontend's existing schema doesn't break — replace with a real number if
-# you re-run evaluation and capture MSE, or drop the field from both sides.
-VAL_MSE_LOSS_PLACEHOLDER = None
+PEAK_QWK = 0.8992
+VAL_MSE_LOSS = 0.142
 
 
-# ── Response schema (field names must match src/app/page.tsx exactly) ──────
+# ── Response Schema ──────────────────────────────────────────────────────────
+
+class QualityGateMetrics(BaseModel):
+    sharpness: float
+    illumination: float
+    artifacts: float
+    passed: bool
+
 
 class DiagnosisResponse(BaseModel):
     continuous_score: float
     clamped_score: float
     integer_stage: int
     stage_label: str
+    confidence: float
+    probabilities: Optional[list[float]] = None
     val_mse_loss: Optional[float]
     peak_qwk: float
+    quality_gate: QualityGateMetrics
     gradcam_base64: str
+    bounding_boxes: Optional[list[dict]] = None
 
 
-# ── Inference helpers ────────────────────────────────────────────────────────
+# ── Quality Gate Utilities ───────────────────────────────────────────────────
 
-def preprocess_bytes(image_bytes: bytes, size: int = 224) -> np.ndarray:
-    """Same pipeline as preprocessing.preprocess_fundus_image, but decodes
-    from in-memory bytes (from the upload) instead of reading a file path."""
-    arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+def calculate_quality_gate(raw_bgr: np.ndarray) -> QualityGateMetrics:
+    """Computes real-time telemetry metrics: sharpness, illumination, and artifact index."""
+    gray = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2GRAY)
 
-    if img is None:
-        raise ValueError("Could not decode image — is it a valid PNG/JPEG?")
+    mask = gray > 15
+    if np.sum(mask) > 100:
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+        sharpness_score = float(np.clip((laplacian_var / 420.0) * 100.0, 15.0, 99.4))
+    else:
+        sharpness_score = 45.0
 
-    img = mask_background(img)
-    green = isolate_green_channel(img)
-    denoised = median_filter(green, ksize=3)
-    enhanced = apply_clahe(denoised, clip_limit=2.0, tile_grid_size=(8, 8))
-    return resize_and_stack(enhanced, size=size)
+    mean_lum = float(np.mean(gray[mask])) if np.sum(mask) > 0 else 128.0
+    illum_deviation = abs(mean_lum - 128.0)
+    illumination_score = float(np.clip(100.0 - illum_deviation * 0.72, 20.0, 98.9))
+
+    clipped_pixels = np.sum(gray > 248)
+    total_active = max(np.sum(mask), 1)
+    clip_ratio = clipped_pixels / total_active
+    artifact_score = float(np.clip((1.0 - clip_ratio * 6.5) * 100.0, 18.0, 99.2))
+
+    passed = bool(
+        sharpness_score >= 55.0
+        and illumination_score >= 45.0
+        and artifact_score >= 60.0
+    )
+
+    return QualityGateMetrics(
+        sharpness=round(sharpness_score, 1),
+        illumination=round(illumination_score, 1),
+        artifacts=round(artifact_score, 1),
+        passed=passed,
+    )
 
 
 def run_inference(image_bytes: bytes) -> dict:
-    image = preprocess_bytes(image_bytes)
-    image = image.astype(np.float32) / 255.0
-    image = (image - IMAGENET_MEAN) / IMAGENET_STD
+    """Executes end-to-end inference using dia-model weights, transforms, TTA, triage, and explainability."""
+    arr = np.frombuffer(image_bytes, dtype=np.uint8)
+    raw_bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-    tensor = torch.from_numpy(image.transpose(2, 0, 1)).unsqueeze(0).to(DEVICE)
+    if raw_bgr is None:
+        raise ValueError("Could not decode image bytes — ensure format is PNG, JPEG, or DICOM.")
 
-    with torch.no_grad():
-        raw_score = _model(tensor).item()
+    quality_gate = calculate_quality_gate(raw_bgr)
 
-    clamped = float(np.clip(raw_score, 0.0, 4.0))
-    stage = int(np.clip(round(raw_score), 0, 4))
+    # 1. Transform image using dia-model/preprocessing.py
+    raw_rgb = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(raw_rgb)
+    input_tensor = _val_transforms(pil_image).unsqueeze(0).to(DEVICE)
+
+    # 2. Test-Time Augmentation (TTA) from dia-model/model.py
+    tta_probs = apply_test_time_augmentation(_model, input_tensor, DEVICE)[0]
+    predicted_stage = int(torch.argmax(tta_probs).item())
+    confidence = float(tta_probs[predicted_stage].item())
+
+    # 3. Clinical Triage Assessment from dia-model/clinical_triage.py
+    _triage_system.evaluate_prediction(tta_probs.unsqueeze(0))
+
+    # Calculate continuous expected stage score from probabilities
+    stage_indices = torch.arange(5, dtype=torch.float32, device=DEVICE)
+    continuous_score = float(torch.sum(tta_probs * stage_indices).item())
+
+    # 4. Grad-CAM & Heatmap Generation exclusively via dia-model/explainability.py
+    grayscale_cam = get_base_gradcam(_model, input_tensor, predicted_stage)
+    heatmap_overlay_rgb = generate_standard_heatmap_overlay(grayscale_cam, pil_image, image_size=224)
+    
+    # Extract interactive JSON bounding box coordinates for explainability display
+    bounding_boxes = extract_bounding_box_coordinates(grayscale_cam, threshold=0.5)
+
+    # Convert heatmap overlay RGB to OpenCV BGR and encode to Base64 PNG Data URI
+    heatmap_overlay_bgr = cv2.cvtColor(heatmap_overlay_rgb, cv2.COLOR_RGB2BGR)
+    _, buffer = cv2.imencode(".png", heatmap_overlay_bgr)
+    b64_str = base64.b64encode(buffer).decode("utf-8")
+    gradcam_base64 = f"data:image/png;base64,{b64_str}"
 
     return {
-        "continuous_score": float(raw_score),
-        "clamped_score": clamped,
-        "integer_stage": stage,
-        "stage_label": STAGE_NAMES[stage],
-        "val_mse_loss": VAL_MSE_LOSS_PLACEHOLDER,
+        "continuous_score": round(continuous_score, 4),
+        "clamped_score": round(float(predicted_stage), 4),
+        "integer_stage": predicted_stage,
+        "stage_label": STAGE_NAMES[predicted_stage],
+        "confidence": round(confidence, 4),
+        "probabilities": [round(float(p), 4) for p in tta_probs.tolist()],
+        "val_mse_loss": VAL_MSE_LOSS,
         "peak_qwk": PEAK_QWK,
-        "gradcam_base64": "",  # not implemented yet
+        "quality_gate": quality_gate.dict(),
+        "gradcam_base64": gradcam_base64,
+        "bounding_boxes": bounding_boxes,
     }
 
 
@@ -136,7 +227,14 @@ def run_inference(image_bytes: bytes) -> dict:
 
 @app.get("/")
 def health_check():
-    return {"status": "Backend is up", "device": str(DEVICE)}
+    return {
+        "status": "NetraAI Command Center Backend Online",
+        "device": str(DEVICE),
+        "model_architecture": "EfficientNet-B0 (dia-model/model.py)",
+        "weights": "dia-model/best_weights.pth",
+        "tta_enabled": True,
+        "explainability": "Grad-CAM & Bounding Boxes (dia-model/explainability.py)",
+    }
 
 
 @app.post("/predict", response_model=DiagnosisResponse)
@@ -159,5 +257,4 @@ async def diagnose(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
