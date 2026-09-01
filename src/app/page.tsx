@@ -1097,12 +1097,91 @@ export default function Home() {
     }
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: { "image/*": [".png", ".jpg", ".jpeg", ".dcm"] },
     multiple: false,
     disabled: loading,
+    noClick: true,
   });
+
+  // ── Global Window Drag-and-Drop Auto-Detection ─────────────────────────────
+  // Automatically shows the diagnosis drop page when a user drags an image over any part of the browser window
+  const [isWindowDragging, setIsWindowDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  useEffect(() => {
+    const handleWindowDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
+        dragCounter.current += 1;
+        setIsWindowDragging(true);
+
+        // Automatically switch to diagnosis drop page
+        setShowInfo(false);
+        setShowPdfModal(false);
+        if (activeView !== "idle") {
+          setActiveView("idle");
+          setDismissTarget(0);
+          setMorphState("eye");
+          setContentReady(true);
+        }
+        if (results !== null) {
+          setResults(null);
+          setPreviewUrl(null);
+        }
+      }
+    };
+
+    const handleWindowDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    const handleWindowDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter.current -= 1;
+      if (dragCounter.current <= 0) {
+        dragCounter.current = 0;
+        setIsWindowDragging(false);
+      }
+    };
+
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter.current = 0;
+      setIsWindowDragging(false);
+
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const droppedFiles = Array.from(e.dataTransfer.files);
+        // Ensure diagnosis drop page is active and process the dropped image
+        setShowInfo(false);
+        setShowPdfModal(false);
+        setActiveView("idle");
+        setDismissTarget(0);
+        setMorphState("eye");
+        setContentReady(true);
+        setResults(null);
+        setPreviewUrl(null);
+
+        onDrop(droppedFiles);
+      }
+    };
+
+    window.addEventListener("dragenter", handleWindowDragEnter);
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    window.addEventListener("drop", handleWindowDrop);
+
+    return () => {
+      window.removeEventListener("dragenter", handleWindowDragEnter);
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, [activeView, results, onDrop]);
 
   // ── Reset to initial idle state ──────────────────────────────────────────────
   const handleResetScan = () => {
@@ -1656,9 +1735,10 @@ export default function Home() {
                 >
                   <div
                     {...getRootProps()}
+                    onClick={open}
                     className={`border border-dashed p-5 md:p-6 w-full flex flex-col items-center justify-center cursor-pointer transition-all duration-200 select-none ${
-                      isDragActive
-                        ? (theme === "light" ? "border-black/50 bg-black/5" : "border-white/50 bg-white/5")
+                      (isDragActive || isWindowDragging)
+                        ? (theme === "light" ? "border-black bg-black/10 scale-[1.02]" : "border-white bg-white/10 scale-[1.02]")
                         : (theme === "light"
                             ? "border-neutral-200/90 hover:border-neutral-400 bg-neutral-50/30 hover:bg-neutral-50/70 text-black"
                             : "border-neutral-800/80 hover:border-neutral-700 bg-neutral-950/20 hover:bg-neutral-950/40 text-white")
@@ -1678,11 +1758,11 @@ export default function Home() {
                       />
                     </div>
 
-                    <div className="flex flex-col items-center text-center gap-1 mt-1 font-mono">
+                    <div className="flex flex-col items-center text-center gap-1 mt-1 font-mono pointer-events-none">
                       <span className="text-xs md:text-sm font-bold tracking-[0.2em] uppercase">
-                        {isDragActive ? t("drop_scan_release", "RELEASE SCAN TO INGEST") : t("drop_scan_title", "DROP FUNDUS SCAN HERE")}
+                        {(isDragActive || isWindowDragging) ? t("drop_scan_release", "RELEASE SCAN TO INGEST") : t("drop_scan_title", "DROP FUNDUS SCAN HERE")}
                       </span>
-                      <span className={`text-[10px] tracking-wider uppercase font-medium ${theme === "light" ? "text-neutral-500 font-semibold" : "text-neutral-400"}`}>
+                      <span className={`text-[10px] tracking-wider uppercase font-medium underline-offset-2 hover:underline ${theme === "light" ? "text-neutral-600 font-semibold" : "text-neutral-300"}`}>
                         {t("drop_scan_browse", "or click to browse filesystem")}
                       </span>
                       <span className={`text-[8.5px] uppercase tracking-widest mt-1 border px-2 py-0.5 font-medium ${
@@ -1748,23 +1828,24 @@ export default function Home() {
 
                           <div
                             {...getRootProps()}
+                            onClick={open}
                             className={`border border-dashed p-12 md:p-14 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 ${
-                              isDragActive
-                                ? (theme === "light" ? "border-black/50 bg-black/5" : "border-white/50 bg-white/5")
+                              (isDragActive || isWindowDragging)
+                                ? (theme === "light" ? "border-black bg-black/10 scale-[1.02]" : "border-white bg-white/10 scale-[1.02]")
                                 : (theme === "light"
                                     ? "border-neutral-200/90 hover:border-neutral-400 bg-neutral-50/30 hover:bg-neutral-50/70"
                                     : "border-neutral-800/80 hover:border-neutral-700 bg-neutral-950/20 hover:bg-neutral-950/40")
                             }`}
                           >
                             <input {...getInputProps()} />
-                            <p className={`text-xs tracking-[0.18em] text-center uppercase leading-loose whitespace-pre-line ${
+                            <p className={`text-xs tracking-[0.18em] text-center uppercase leading-loose whitespace-pre-line pointer-events-none ${
                               theme === "light" ? "text-neutral-900 font-bold" : "text-white/60"
                             }`}>
-                              {isDragActive
+                              {(isDragActive || isWindowDragging)
                                 ? "Release scan to analyze"
                                 : "Drop fundus scan here\nor click to browse filesystem"}
                             </p>
-                            <span className={`text-[9px] uppercase tracking-wider mt-4 border px-2 py-0.5 font-medium ${
+                            <span className={`text-[9px] uppercase tracking-wider mt-4 border px-2 py-0.5 font-medium pointer-events-none ${
                               theme === "light" ? "border-neutral-200/90 text-neutral-500 bg-white/60" : "border-neutral-800/80 text-neutral-500 bg-black/40"
                             }`}>
                               Supported: DICOM, PNG, JPEG
