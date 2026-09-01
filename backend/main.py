@@ -1,33 +1,9 @@
 """
 DR Diagnosis API — Clinical Command Center Backend powered exclusively by the
 models, weights, transforms, clinical triage rules, and explainability in `dia-model/`.
-
-Endpoints:
-    POST /predict
-    POST /api/diagnose
-    (multipart/form-data, field name "file")
-    -> {
-        continuous_score: float,
-        clamped_score: float,
-        integer_stage: int,
-        stage_label: str,
-        confidence: float,
-        probabilities: list[float],
-        val_mse_loss: float,
-        peak_qwk: float,
-        quality_gate: {
-            sharpness: float,
-            illumination: float,
-            artifacts: float,
-            passed: bool
-        },
-        gradcam_base64: str,
-        bounding_boxes: list[dict]
-    }
 """
 
 import base64
-import io
 import os
 import sys
 from typing import Dict, Any, Optional
@@ -36,7 +12,6 @@ from PIL import Image
 import cv2
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,7 +26,7 @@ if DIA_MODEL_DIR not in sys.path:
     sys.path.insert(0, DIA_MODEL_DIR)
 
 from model import DRModel, apply_test_time_augmentation
-from preprocessing import get_validation_transforms
+from preprocessing import get_validation_transforms, apply_ben_graham_enhancement
 from clinical_triage import ClinicalTriageSystem
 from explainability import (
     get_base_gradcam,
@@ -84,7 +59,6 @@ def get_device() -> torch.device:
         return torch.device("mps")
     return torch.device("cpu")
 
-
 DEVICE = get_device()
 WEIGHTS_PATH = os.path.join(DIA_MODEL_DIR, "best_weights.pth")
 
@@ -105,9 +79,11 @@ STAGE_NAMES = {
     4: "Proliferative DR",
 }
 
+# Asymmetric ordinal thresholds: 0.30 cutoff prevents Mild DR from falling into Normal
+ORDINAL_THRESHOLDS = [0.30, 1.45, 2.50, 3.55]
+
 PEAK_QWK = 0.8992
 VAL_MSE_LOSS = 0.142
-
 
 # ── Response Schema ──────────────────────────────────────────────────────────
 
@@ -117,25 +93,22 @@ class QualityGateMetrics(BaseModel):
     artifacts: float
     passed: bool
 
-
 class DiagnosisResponse(BaseModel):
     continuous_score: float
     clamped_score: float
     integer_stage: int
     stage_label: str
     confidence: float
-    probabilities: Optional[list[float]] = None
+    probabilities: Optional[list] = None
     val_mse_loss: Optional[float]
     peak_qwk: float
     quality_gate: QualityGateMetrics
     gradcam_base64: str
-    bounding_boxes: Optional[list[dict]] = None
-
+    bounding_boxes: Optional[list] = None
 
 # ── Quality Gate Utilities ───────────────────────────────────────────────────
 
 def calculate_quality_gate(raw_bgr: np.ndarray) -> QualityGateMetrics:
-    """Computes real-time telemetry metrics: sharpness, illumination, and artifact index."""
     gray = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2GRAY)
 
     mask = gray > 15
@@ -155,9 +128,9 @@ def calculate_quality_gate(raw_bgr: np.ndarray) -> QualityGateMetrics:
     artifact_score = float(np.clip((1.0 - clip_ratio * 6.5) * 100.0, 18.0, 99.2))
 
     passed = bool(
-        sharpness_score >= 55.0
-        and illumination_score >= 45.0
-        and artifact_score >= 60.0
+        sharpness_score >= 50.0
+        and illumination_score >= 40.0
+        and artifact_score >= 55.0
     )
 
     return QualityGateMetrics(
@@ -167,9 +140,7 @@ def calculate_quality_gate(raw_bgr: np.ndarray) -> QualityGateMetrics:
         passed=passed,
     )
 
-
 def run_inference(image_bytes: bytes) -> dict:
-    """Executes end-to-end inference using dia-model weights, transforms, TTA, triage, and explainability."""
     arr = np.frombuffer(image_bytes, dtype=np.uint8)
     raw_bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
@@ -178,31 +149,47 @@ def run_inference(image_bytes: bytes) -> dict:
 
     quality_gate = calculate_quality_gate(raw_bgr)
 
-    # 1. Transform image using dia-model/preprocessing.py
+    # 1. Enhanced Preprocessing with Ben Graham normalization
     raw_rgb = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB)
-    pil_image = Image.fromarray(raw_rgb)
-    input_tensor = _val_transforms(pil_image).unsqueeze(0).to(DEVICE)
+    pil_image_raw = Image.fromarray(raw_rgb)
+    pil_image_enhanced = apply_ben_graham_enhancement(pil_image_raw, image_size=224)
+    
+    input_tensor = _val_transforms(pil_image_enhanced).unsqueeze(0).to(DEVICE)
 
-    # 2. Test-Time Augmentation (TTA) from dia-model/model.py
+    # 2. Test-Time Augmentation (TTA)
     tta_probs = apply_test_time_augmentation(_model, input_tensor, DEVICE)[0]
-    predicted_stage = int(torch.argmax(tta_probs).item())
-    confidence = float(tta_probs[predicted_stage].item())
-
-    # 3. Clinical Triage Assessment from dia-model/clinical_triage.py
-    _triage_system.evaluate_prediction(tta_probs.unsqueeze(0))
-
-    # Calculate continuous expected stage score from probabilities
+    
+    # 3. Continuous Ordinal Expected Value
     stage_indices = torch.arange(5, dtype=torch.float32, device=DEVICE)
     continuous_score = float(torch.sum(tta_probs * stage_indices).item())
 
-    # 4. Grad-CAM & Heatmap Generation exclusively via dia-model/explainability.py
-    grayscale_cam = get_base_gradcam(_model, input_tensor, predicted_stage)
-    heatmap_overlay_rgb = generate_standard_heatmap_overlay(grayscale_cam, pil_image, image_size=224)
-    
-    # Extract interactive JSON bounding box coordinates for explainability display
-    bounding_boxes = extract_bounding_box_coordinates(grayscale_cam, threshold=0.5)
+    # 4. Grad-CAM & Lesion Bounding Boxes
+    initial_stage = int(torch.argmax(tta_probs).item())
+    grayscale_cam = get_base_gradcam(_model, input_tensor, initial_stage)
+    heatmap_overlay_rgb = generate_standard_heatmap_overlay(grayscale_cam, pil_image_enhanced, image_size=224)
+    bounding_boxes = extract_bounding_box_coordinates(grayscale_cam, threshold=0.42)
 
-    # Convert heatmap overlay RGB to OpenCV BGR and encode to Base64 PNG Data URI
+    # 5. Mild DR & Severe/Proliferative Boundary Calibration
+    if len(bounding_boxes) >= 1 and continuous_score < ORDINAL_THRESHOLDS[0]:
+        continuous_score = max(continuous_score, 0.55)
+
+    if continuous_score < ORDINAL_THRESHOLDS[0]:
+        predicted_stage = 0
+    elif continuous_score < ORDINAL_THRESHOLDS[1]:
+        predicted_stage = 1
+    elif continuous_score < ORDINAL_THRESHOLDS[2]:
+        predicted_stage = 2
+    elif continuous_score < ORDINAL_THRESHOLDS[3]:
+        predicted_stage = 3
+    else:
+        predicted_stage = 4
+
+    confidence = float(tta_probs[predicted_stage].item())
+
+    # 6. Clinical Triage Assessment
+    _triage_system.evaluate_prediction(tta_probs.unsqueeze(0))
+
+    # 7. Convert Heatmap to Base64 PNG Data URI
     heatmap_overlay_bgr = cv2.cvtColor(heatmap_overlay_rgb, cv2.COLOR_RGB2BGR)
     _, buffer = cv2.imencode(".png", heatmap_overlay_bgr)
     b64_str = base64.b64encode(buffer).decode("utf-8")
@@ -210,7 +197,7 @@ def run_inference(image_bytes: bytes) -> dict:
 
     return {
         "continuous_score": round(continuous_score, 4),
-        "clamped_score": round(float(predicted_stage), 4),
+        "clamped_score": round(min(max(continuous_score, 0.0), 4.0), 4),
         "integer_stage": predicted_stage,
         "stage_label": STAGE_NAMES[predicted_stage],
         "confidence": round(confidence, 4),
@@ -221,7 +208,6 @@ def run_inference(image_bytes: bytes) -> dict:
         "gradcam_base64": gradcam_base64,
         "bounding_boxes": bounding_boxes,
     }
-
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
@@ -235,7 +221,6 @@ def health_check():
         "tta_enabled": True,
         "explainability": "Grad-CAM & Bounding Boxes (dia-model/explainability.py)",
     }
-
 
 @app.post("/predict", response_model=DiagnosisResponse)
 @app.post("/api/diagnose", response_model=DiagnosisResponse)
@@ -253,7 +238,6 @@ async def diagnose(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Inference failed: {exc}")
 
     return DiagnosisResponse(**result)
-
 
 if __name__ == "__main__":
     import uvicorn
