@@ -859,11 +859,10 @@ export default function Home() {
     }
 
     if (view === "idle") {
-      // Only trigger splash when transitioning back to home from another view
-      setBooting(true);
-      setContentReady(false);
-      setDismissTarget(0); // Eye undispersing / reforming animation
+      // Return to home dashboard cleanly without re-triggering boot/intro splash
       setActiveView("idle");
+      setDismissTarget(0); // Eye undispersing / reforming animation
+      setContentReady(true);
       setMorphState("eye");
       setResults(null);
       setPreviewUrl(null);
@@ -1173,7 +1172,28 @@ export default function Home() {
     }
   };
 
-  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+  // ── Dedicated Permanent File Input Ref for 100% Reliable File Picker Popups ─
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleOpenFileDialog = useCallback((e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+      fileInputRef.current.click();
+    }
+  }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      onDrop([file]);
+      e.target.value = "";
+    }
+  }, [onDrop]);
+
+  const { getRootProps, isDragActive } = useDropzone({
     onDrop,
     accept: { "image/*": [".png", ".jpg", ".jpeg", ".dcm"] },
     multiple: false,
@@ -1182,7 +1202,6 @@ export default function Home() {
   });
 
   // ── Global Window Drag-and-Drop Auto-Detection ─────────────────────────────
-  // Automatically shows the diagnosis drop page when a user drags an image over any part of the browser window
   const [isWindowDragging, setIsWindowDragging] = useState(false);
   const dragCounter = useRef(0);
 
@@ -1192,20 +1211,6 @@ export default function Home() {
       if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
         dragCounter.current += 1;
         setIsWindowDragging(true);
-
-        // Automatically switch to diagnosis drop page
-        setShowInfo(false);
-        setShowPdfModal(false);
-        if (activeView !== "idle") {
-          setActiveView("idle");
-          setDismissTarget(0);
-          setMorphState("eye");
-          setContentReady(true);
-        }
-        if (results !== null) {
-          setResults(null);
-          setPreviewUrl(null);
-        }
       }
     };
 
@@ -1219,7 +1224,13 @@ export default function Home() {
     const handleWindowDragLeave = (e: DragEvent) => {
       e.preventDefault();
       dragCounter.current -= 1;
-      if (dragCounter.current <= 0) {
+      if (
+        dragCounter.current <= 0 ||
+        e.clientX <= 0 ||
+        e.clientY <= 0 ||
+        e.clientX >= window.innerWidth ||
+        e.clientY >= window.innerHeight
+      ) {
         dragCounter.current = 0;
         setIsWindowDragging(false);
       }
@@ -1227,18 +1238,14 @@ export default function Home() {
 
     const handleWindowDrop = (e: DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       dragCounter.current = 0;
       setIsWindowDragging(false);
 
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         const droppedFiles = Array.from(e.dataTransfer.files);
-        // Ensure diagnosis drop page is active and process the dropped image
         setShowInfo(false);
         setShowPdfModal(false);
-        setActiveView("idle");
-        setDismissTarget(0);
-        setMorphState("eye");
-        setContentReady(true);
         setResults(null);
         setPreviewUrl(null);
 
@@ -1257,19 +1264,19 @@ export default function Home() {
       window.removeEventListener("dragleave", handleWindowDragLeave);
       window.removeEventListener("drop", handleWindowDrop);
     };
-  }, [activeView, results, onDrop]);
+  }, [onDrop]);
 
   // ── Reset to initial idle state ──────────────────────────────────────────────
   const handleResetScan = () => {
-    if (activeView !== "idle" || results !== null || previewUrl !== null) {
-      setBooting(true);
-    }
+    setActiveView("idle");
+    setDismissTarget(0);
+    setMorphState("eye");
+    setContentReady(true);
     setResults(null);
     setPreviewUrl(null);
     setErrorMsg(null);
     setSaveMessage(null);
     setLoading(false);
-    setMorphState("eye");
   };
 
   // ── Unauthenticated Login Portal ─────────────────────────────────────────────
@@ -1811,7 +1818,7 @@ export default function Home() {
                 >
                   <div
                     {...getRootProps()}
-                    onClick={open}
+                    onClick={handleOpenFileDialog}
                     className={`border border-dashed p-5 md:p-6 w-full flex flex-col items-center justify-center cursor-pointer transition-all duration-200 select-none ${
                       (isDragActive || isWindowDragging)
                         ? (theme === "light" ? "border-black bg-black/10 scale-[1.02]" : "border-white bg-white/10 scale-[1.02]")
@@ -1820,7 +1827,6 @@ export default function Home() {
                             : "border-neutral-800/80 hover:border-neutral-700 bg-neutral-950/20 hover:bg-neutral-950/40 text-white")
                     }`}
                   >
-                    <input {...getInputProps()} />
 
                     {/* 3D Particle Eye: Scaled nicely to fit smaller drop target */}
                     <div className="w-full h-40 md:h-44 flex items-center justify-center relative pointer-events-none">
@@ -1895,7 +1901,7 @@ export default function Home() {
                         <div className="w-full flex flex-col gap-4 pointer-events-auto">
                           <div
                             {...getRootProps()}
-                            onClick={open}
+                            onClick={handleOpenFileDialog}
                             className={`border-2 border-dashed p-10 md:p-12 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 select-none ${
                               (isDragActive || isWindowDragging)
                                 ? (theme === "light" ? "border-black bg-black/10 scale-[1.02]" : "border-white bg-white/10 scale-[1.02]")
@@ -1904,7 +1910,6 @@ export default function Home() {
                                     : "border-neutral-800 hover:border-neutral-500 bg-neutral-950/40 hover:bg-neutral-900 text-white")
                             }`}
                           >
-                            <input {...getInputProps()} />
                             <p className="text-xs md:text-sm font-bold tracking-[0.2em] text-center uppercase font-mono pointer-events-none">
                               {(isDragActive || isWindowDragging)
                                 ? t("drop_scan_release", "RELEASE SCAN TO INGEST")
@@ -2781,6 +2786,17 @@ export default function Home() {
           }}
         />
       )}
+
+      {/* Permanent Dedicated Hidden File Input for 100% Reliable File Picker Popups */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.dcm,image/*"
+        onChange={handleFileInputChange}
+        className="hidden"
+        style={{ display: "none" }}
+        aria-hidden="true"
+      />
     </main>
   );
 }
