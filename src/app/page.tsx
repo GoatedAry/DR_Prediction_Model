@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
-import { Sun, Moon, RotateCcw, ArrowLeft, FileText } from "lucide-react";
+import { Sun, Moon, RotateCcw, ArrowLeft, FileText, Volume2 } from "lucide-react";
 import LocationGateway, { LocationHub } from "./components/LocationGateway";
 import SessionPanel, { DiagnosticHistoryItem } from "./components/SessionPanel";
 import PatientLogTable from "./components/PatientLogTable";
@@ -1009,6 +1009,49 @@ export default function Home() {
       gradcam_base64: gradImg,
       bounding_boxes: boxes,
     });
+  };
+
+  // ── Native Browser Web Speech API Offline Accessibility (EN / HI) ───────────
+  const speakDiagnosis = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const isHi = language === "hi";
+
+      const speechText = isHi
+        ? (results?.integer_stage === 0
+            ? "रेटिना सामान्य है। मधुमेह संबंधी कोई गंभीर असामान्यता नहीं पाई गई।"
+            : results?.integer_stage === 1
+            ? "हल्की डायबिटिक रेटिनोपैथी पाई गई है। प्रारंभिक माइक्रोएन्यूरिज्म के संकेत हैं।"
+            : results?.integer_stage === 2
+            ? "मध्यम डायबिटिक रेटिनोपैथी पाई गई है। तीन माह के भीतर क्लिनिक में समीक्षा आवश्यक है।"
+            : results?.integer_stage === 3
+            ? "चेतावनी। गंभीर डायबिटिक रेटिनोपैथी पाई गई है। दो से चार सप्ताह में नेत्र रोग विशेषज्ञ से परामर्श लें।"
+            : "चेतावनी। प्रोलिफेरेटिव डायबिटिक रेटिनोपैथी पाई गई है। जिला अस्पताल में तत्काल आपातकालीन नेत्र चिकित्सा आवश्यक है।")
+        : (results?.integer_stage === 0
+            ? "Retina is normal. No diabetic retinopathy lesions detected."
+            : results?.integer_stage === 1
+            ? "Mild Non-Proliferative Diabetic Retinopathy detected. Follow up recommended."
+            : results?.integer_stage === 2
+            ? "Moderate Diabetic Retinopathy detected. Clinic review recommended within three months."
+            : results?.integer_stage === 3
+            ? "Alert. Severe Diabetic Retinopathy detected. Specialist consultation required within two to four weeks."
+            : "Alert. Proliferative Diabetic Retinopathy detected. Immediate referral to district hospital required.");
+
+      const utterance = new SpeechSynthesisUtterance(speechText);
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      utterance.lang = isHi ? "hi-IN" : "en-US";
+
+      if (isHi) {
+        const voices = window.speechSynthesis.getVoices();
+        const hindiVoice = voices.find((v) => v.lang === "hi-IN" || v.lang.startsWith("hi"));
+        if (hindiVoice) {
+          utterance.voice = hindiVoice;
+        }
+      }
+
+      window.speechSynthesis.speak(utterance);
+    }
   };
 
   // ── Full Screen Dropzone Upload: Intercept with Patient Intake Modal ────────
@@ -2038,15 +2081,16 @@ export default function Home() {
 
                                 {/* UI Bounding Boxes Overlay derived directly from results.bounding_boxes JSON */}
                                 {(() => {
-                                  const activeBoxes = (results.bounding_boxes && results.bounding_boxes.length > 0)
-                                    ? results.bounding_boxes
-                                    : (results.integer_stage > 0
-                                        ? [{ x: 52, y: 44, width: 120, height: 124 }]
-                                        : []);
+                                  const isStageZero = results.integer_stage === 0;
+                                  const activeBoxes = isStageZero
+                                    ? []
+                                    : (results.bounding_boxes && results.bounding_boxes.length > 0)
+                                      ? results.bounding_boxes
+                                      : [];
 
                                   return (
                                     <>
-                                      {activeBoxes.length > 0 ? (
+                                      {!isStageZero && activeBoxes.length > 0 ? (
                                         <div className="absolute inset-0 p-2 pointer-events-none flex items-center justify-center">
                                           <div className="relative w-full h-full max-w-[360px] max-h-[360px]">
                                             {activeBoxes.map((box, idx) => {
@@ -2084,25 +2128,29 @@ export default function Home() {
                                         </div>
                                       ) : (
                                         <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-neutral-400 text-xs font-mono">
-                                          NO HIGH-INTENSITY BOUNDING BOXES DETECTED
+                                          {isStageZero
+                                            ? (language === "hi" ? "सामान्य रेटिना: कोई लीज़न सीमा नहीं" : "STAGE 0 NORMAL: NO LESION BOUNDARIES")
+                                            : "NO HIGH-INTENSITY BOUNDING BOXES DETECTED"}
                                         </div>
                                       )}
 
-                                      {/* Compact Bounding Box JSON Badge */}
-                                      <div className={`absolute bottom-2 left-2 right-2 p-1.5 border text-[9px] flex items-center justify-between backdrop-blur-md z-30 ${
-                                        theme === "light"
-                                          ? "bg-white/95 border-neutral-300 text-neutral-900 shadow-sm"
-                                          : "bg-black/90 border-neutral-800 text-emerald-400 font-mono"
-                                      }`}>
-                                        <span className={`truncate font-mono font-bold ${
-                                          theme === "light" ? "text-emerald-800" : "text-emerald-400"
+                                      {/* Compact Bounding Box JSON Badge - Only for stages > 0 */}
+                                      {!isStageZero && (
+                                        <div className={`absolute bottom-2 left-2 right-2 p-1.5 border text-[9px] flex items-center justify-between backdrop-blur-md z-30 ${
+                                          theme === "light"
+                                            ? "bg-white/95 border-neutral-300 text-neutral-900 shadow-sm"
+                                            : "bg-black/90 border-neutral-800 text-emerald-400 font-mono"
                                         }`}>
-                                          JSON COORDS: {JSON.stringify(activeBoxes.length > 0 ? activeBoxes : [{ x: 0, y: 0, width: 224, height: 224 }])}
-                                        </span>
-                                        <span className={`shrink-0 font-bold ${
-                                          theme === "light" ? "text-neutral-700" : "text-neutral-500"
-                                        }`}>[ dia-model ]</span>
-                                      </div>
+                                          <span className={`truncate font-mono font-bold ${
+                                            theme === "light" ? "text-emerald-800" : "text-emerald-400"
+                                          }`}>
+                                            JSON COORDS: {JSON.stringify(activeBoxes)}
+                                          </span>
+                                          <span className={`shrink-0 font-bold ${
+                                            theme === "light" ? "text-neutral-700" : "text-neutral-500"
+                                          }`}>[ dia-model ]</span>
+                                        </div>
+                                      )}
                                     </>
                                   );
                                 })()}
@@ -2129,6 +2177,31 @@ export default function Home() {
                               <span className="font-bold text-[11px] text-emerald-600 dark:text-emerald-400">0.8992 (QWK)</span>
                             </div>
                           </div>
+
+                          {/* Detected Lesion Box Count Tag */}
+                          <div className="flex items-center justify-between text-[9px] font-mono uppercase px-1 pt-1 opacity-75">
+                            <span>
+                              {t("detected_boxes_title", "Detected Lesion Boxes:")}
+                            </span>
+                            <span className="font-bold">
+                              {results.integer_stage > 0 && (results.bounding_boxes?.length ?? 0) > 0
+                                ? `${results.bounding_boxes?.length} ${t("boxes_detected_count", "Detected")}`
+                                : t("no_lesion_boxes", "0 (None Detected)")}
+                            </span>
+                          </div>
+
+                          {/* Grey Audio Button directly below Heatmap / Metrics */}
+                          <button
+                            onClick={speakDiagnosis}
+                            className={`w-full border text-[9.5px] font-mono tracking-[0.18em] py-2.5 uppercase font-bold transition-all duration-200 cursor-pointer flex items-center justify-center ${
+                              theme === "light"
+                                ? "border-neutral-400 text-neutral-900 bg-neutral-200 hover:bg-neutral-300"
+                                : "border-neutral-700 text-neutral-200 bg-neutral-900 hover:bg-neutral-800"
+                            }`}
+                            title={language === "hi" ? "डायग्नोस्टिक ऑडियो सुनें" : "Speak Diagnostic Accessibility Audio Alert"}
+                          >
+                            [ {language === "hi" ? "ऑडियो" : "AUDIO"} ]
+                          </button>
                         </div>
 
                       </div>

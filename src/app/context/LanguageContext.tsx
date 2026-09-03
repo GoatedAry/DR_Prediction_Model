@@ -171,6 +171,9 @@ export const DICTIONARY: Translations = {
   report_summary_title: { en: "Reports", hi: "रिपोर्ट्स" },
   total_audited: { en: "TOTAL AUDITED PATIENT RECORDS", hi: "कुल ऑडिट किए गए मरीज़ रिकॉर्ड्स" },
   distribution: { en: "STAGE DISTRIBUTION", hi: "स्टेज वितरण" },
+  detected_boxes_title: { en: "Detected Lesion Boxes:", hi: "पहचाने गए लीज़न बॉक्स:" },
+  no_lesion_boxes: { en: "0 (None Detected)", hi: "0 (कोई लीज़न नहीं)" },
+  boxes_detected_count: { en: "Detected", hi: "चिह्नित" },
 };
 
 interface LanguageContextType {
