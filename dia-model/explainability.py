@@ -8,8 +8,6 @@ from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
 def get_last_conv_layer(model):
     last_conv_layer = None
-    if hasattr(model, "base_model") and hasattr(model.base_model, "features"):
-        return model.base_model.features[-1]
     for module in model.modules():
         if isinstance(module, nn.Conv2d):
             last_conv_layer = module
@@ -30,28 +28,23 @@ def generate_standard_heatmap_overlay(grayscale_cam, raw_image_pil, image_size=2
     heatmap_overlay = show_cam_on_image(img_array, grayscale_cam, use_rgb=True)
     return heatmap_overlay
 
-def extract_bounding_box_coordinates(grayscale_cam, threshold=0.45, max_boxes=6):
+def extract_bounding_box_coordinates(grayscale_cam, threshold):
+    """
+    Dynamically thresholds the raw heatmap and extracts JSON-friendly coordinates.
+    """
     cam_uint8 = (grayscale_cam * 255).astype(np.uint8)
     _, binarized_mask = cv2.threshold(cam_uint8, int(threshold * 255), 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(binarized_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     boxes = []
-    h_cam, w_cam = grayscale_cam.shape[:2]
-    
     for contour in contours:
-        if cv2.contourArea(contour) > 25:
+        if cv2.contourArea(contour) > 50:
             x, y, w, h = cv2.boundingRect(contour)
-            scale_x = 224.0 / w_cam
-            scale_y = 224.0 / h_cam
+            boxes.append({
+                "x": int(x), 
+                "y": int(y), 
+                "width": int(w), 
+                "height": int(h)
+            })
             
-            bx = max(0, int(x * scale_x))
-            by = max(0, int(y * scale_y))
-            bw = min(224 - bx, int(w * scale_x))
-            bh = min(224 - by, int(h * scale_y))
-            
-            if bw >= 6 and bh >= 6:
-                boxes.append({"x": bx, "y": by, "width": bw, "height": bh})
-                if len(boxes) >= max_boxes:
-                    break
-                    
     return boxes

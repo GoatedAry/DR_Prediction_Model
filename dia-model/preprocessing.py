@@ -1,59 +1,37 @@
-import cv2
-import numpy as np
-import torch
 import torchvision.transforms as T
-from PIL import Image
-from typing import Union, Tuple, Optional
 
-def apply_ben_graham_enhancement(
-    image: Union[np.ndarray, Image.Image],
-    target_size: Union[Tuple[int, int], int] = (384, 384),
-    image_size: Optional[int] = None
-) -> Union[np.ndarray, Image.Image]:
-    """Enhances capillaries and microaneurysms by subtracting local Gaussian blur."""
-    is_pil = isinstance(image, Image.Image)
-    
-    if image_size is not None:
-        target_size = (image_size, image_size)
-    elif isinstance(target_size, int):
-        target_size = (target_size, target_size)
-        
-    if is_pil:
-        img_np = np.array(image)
-        if img_np.ndim == 3 and img_np.shape[2] == 3:
-            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        else:
-            img_bgr = img_np
-    else:
-        img_bgr = image
+def get_training_transforms(image_size=224):
+    """
+    Returns training transforms incorporating morphological rotations, 
+    flips, color jitter, and random occlusion.
+    """
+    return T.Compose([
+        T.Resize((image_size, image_size)),
+        T.RandomHorizontalFlip(p=0.5),
+        T.RandomVerticalFlip(p=0.5),
+        T.RandomRotation(degrees=15),
+        T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        T.RandomErasing(p=0.2, scale=(0.02, 0.15), value='random')
+    ])
 
-    resized = cv2.resize(img_bgr, target_size)
-    sigma = max(1.0, target_size[0] / 30.0)
-    enhanced = cv2.addWeighted(
-        resized, 4,
-        cv2.GaussianBlur(resized, (0, 0), sigma), -4,
-        128
-    )
+def get_stress_test_transforms(image_size=224):
+    """
+    Simulates degraded clinical environments to test model robustness.
+    """
+    return T.Compose([
+        T.Resize((image_size, image_size)),
+        T.GaussianBlur(kernel_size=5, sigma=(0.5, 2.0)),
+        T.ColorJitter(brightness=0.5, contrast=0.5),
+        T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
-    if is_pil:
-        enhanced_rgb = cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB)
-        return Image.fromarray(enhanced_rgb)
-    return enhanced
-
-def check_image_quality(image_bgr: np.ndarray) -> dict:
-    """Calculates image clarity, illumination, and artifact scores."""
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-    illumination = float(np.mean(gray))
-    passed = (sharpness >= 60.0) and (25.0 <= illumination <= 230.0)
-    return {
-        "sharpness": round(sharpness, 2),
-        "illumination": round(illumination, 2),
-        "artifacts": 0.02 if passed else 0.40,
-        "passed": passed
-    }
-
-def get_validation_transforms(image_size=384):
+def get_validation_transforms(image_size=224):
+    """
+    Returns clean validation and test inference transforms.
+    """
     return T.Compose([
         T.Resize((image_size, image_size)),
         T.ToTensor(),

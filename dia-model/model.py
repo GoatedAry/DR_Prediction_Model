@@ -3,7 +3,7 @@ import torch.nn as nn
 import torchvision.models as models
 
 class DRModel(nn.Module):
-    def __init__(self, num_classes=5, pretrained=True, drop_rate=0.3):
+    def __init__(self, num_classes=5, pretrained=True, drop_rate=0.2):
         super(DRModel, self).__init__()
         weights = models.EfficientNet_B0_Weights.DEFAULT if pretrained else None
         self.base_model = models.efficientnet_b0(weights=weights)
