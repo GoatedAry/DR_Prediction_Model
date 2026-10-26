@@ -1116,7 +1116,8 @@ export default function Home() {
       const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s maximum timeout
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/predict", {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
+        const response = await fetch(`${backendUrl}/predict`, {
           method: "POST",
           body: formData,
           signal: controller.signal,
